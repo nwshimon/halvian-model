@@ -68,11 +68,17 @@ W = world()
 
 
 # ------------------------------------------------------------------ state
+def _orders_frame(orders):
+    """Orders table with fixed column types (an empty table with untyped columns crashes st.data_editor)."""
+    df = pd.DataFrame(orders or [], columns=["name", "resulted", "abnormal"])
+    return df.astype({"name": str, "resulted": bool, "abnormal": bool})
+
+
 def _defaults():
     return {"f_text": EXAMPLES["A: looks mild, then isn't"], "f_age": "35-49", "f_complaint": "abdominal_pain", "f_esi": 3,
             "f_hr": 92.0, "f_spo2": 96.0, "f_sbp": 128.0, "f_rr": 18.0, "f_temp": 37.4, "f_arr": 60.0, "f_last": 52.0,
             "f_admit": False, "f_level": "telemetry", "f_iso": False, "orders_ver": 0,
-            "f_orders": pd.DataFrame({"name": ["lab_panel"], "resulted": [False], "abnormal": [False]}),
+            "f_orders": _orders_frame([{"name": "lab_panel", "resulted": False, "abnormal": False}]),
             "parse_info": None, "decision": None}
 
 
@@ -109,8 +115,7 @@ def do_parse():
     if c["requested_level_of_care"]:
         s["f_level"] = c["requested_level_of_care"]
     s["f_iso"] = c["isolation_required"]
-    s["f_orders"] = pd.DataFrame(c["orders"] or [], columns=["name", "resulted", "abnormal"]).astype({"resulted": bool, "abnormal": bool}) \
-        if c["orders"] else pd.DataFrame({"name": [], "resulted": [], "abnormal": []})
+    s["f_orders"] = _orders_frame(c["orders"])
     s["orders_ver"] += 1
     s["decision"] = None
 
