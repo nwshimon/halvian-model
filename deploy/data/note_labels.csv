@@ -1,0 +1,35 @@
+note_id,blocker_type,evidence_phrase,owner_role
+N-001,family,fam teaching not done,social_work
+N-002,family,family meeting about the discharge plan has not taken place,social_work
+N-002,home_oxygen_equipment,oxygen equipment for home is still being arranged,case_management
+N-004,paperwork,home health referral form has not been signed,case_management
+N-005,placement,facility has not yet accepted the patient,case_management
+N-009,pt_evaluation,pt/ot not seen yet,PT/OT
+N-010,family,no caregiver at home,social_work
+N-012,family,family meeting about the discharge plan has not taken place,social_work
+N-012,medications,new anticoagulant has not yet been filled by pharmacy,pharmacy
+N-013,paperwork,insurance authorization form is still missing a signature,case_management
+N-014,family,fam mtg not done,social_work
+N-015,paperwork,insurance authorization form is still missing a signature,case_management
+N-018,home_oxygen_equipment,home oxygen has not been delivered,case_management
+N-019,home_oxygen_equipment,awaiting DME o2,case_management
+N-019,medications,med rec not done,pharmacy
+N-020,transport,no ride home has been arranged,case_management
+N-021,paperwork,home health referral form has not been signed,case_management
+N-022,paperwork,insurance authorization form is still missing a signature,case_management
+N-022,pt_evaluation,physical therapy evaluation has not been completed,PT/OT
+N-024,paperwork,HH referral unsigned,case_management
+N-024,family,fam teaching not done,social_work
+N-025,family,family meeting about the discharge plan has not taken place,social_work
+N-025,pt_evaluation,physical therapy evaluation has not been completed,PT/OT
+N-026,medications,medication reconciliation is not finished,pharmacy
+N-027,medications,new anticoagulant has not yet been filled by pharmacy,pharmacy
+N-028,paperwork,insurance authorization form is still missing a signature,case_management
+N-029,home_oxygen_equipment,o2 equip not delivered,case_management
+N-029,pt_evaluation,pt/ot not seen yet,PT/OT
+N-030,home_oxygen_equipment,o2 equip not delivered,case_management
+N-031,medications,meds prior auth pending,pharmacy
+N-032,family,family meeting about the discharge plan has not taken place,social_work
+N-034,family,family has not yet completed discharge teaching,social_work
+N-035,family,no caregiver at home,social_work
+N-036,placement,skilled nursing facility placement is pending acceptance,case_management
