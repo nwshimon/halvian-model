@@ -1,0 +1,13 @@
+note_id,note_text,style,has_resolved_distractor
+U-01,"Day 3 after hip fracture repair. Pain controlled and eating well. She lives alone with stairs to her bedroom and no one from therapy has come to assess her mobility yet, so we cannot safely send her home.",plain,False
+U-02,"Medically ready for discharge. Vitals stable. His son has already been updated on the plan, but the van company hasn't confirmed a pickup time.",plain,False
+U-03,"COPD patient, saturating 93% on room air when walking, so she qualifies for home O2. However the supplier hasn't dropped off the concentrator at her apartment.",plain,False
+U-04,Starting apixaban at discharge. Insurance rejected the first fill and the pharmacy is still waiting on the prior auth from the plan.,plain,False
+U-05,Patient has dementia and is otherwise at baseline. Her daughter lives out of state and nobody has been named to supervise her at home after discharge.,plain,False
+U-06,Home health agency needs the face-to-face attestation signed by the physician before they will start services. Chart currently has no signed copy.,plain,False
+U-07,Plan is short-term rehab. Two facilities were sent referrals on Monday and neither has gotten back to us.,plain,False
+U-08,"Cleared by medicine. OT hasn't signed off on her kitchen safety, and there's no wheelchair van booked for tomorrow.",plain,False
+U-09,"Walked the hallway twice with PT, who signed off for home. Oxygen was delivered yesterday and the family has already attended the teaching class. Discharge summary is signed and meds are in hand. Going home this afternoon.",plain,True
+U-10,Afebrile for 48 hours and the wound is clean. Eating independently. Discharge instructions reviewed with the patient and her husband. Nothing outstanding.,plain,False
+U-11,Will need outpatient physical therapy after discharge; the referral is placed and the first appointment is booked for next week. No barriers to going home today.,plain,True
+U-12,snf accepted yesterday but bed not avail til fri; auth from insurance not back,messy,False
