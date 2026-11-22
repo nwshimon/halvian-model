@@ -181,6 +181,12 @@ class AdmitModel:
 
     @staticmethod
     def load(path=f"{MODEL_DIR}/admit_model.joblib"):
+        # A model file saved by running this file directly records its class as "__main__.AdmitModel", which a web app cannot find.
+        # Point that name at the real class so both kinds of file load.
+        import sys
+        main = sys.modules.get("__main__")
+        if main is not None and not hasattr(main, "AdmitModel"):
+            main.AdmitModel = AdmitModel
         return joblib.load(path)
 
 
