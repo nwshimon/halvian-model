@@ -202,8 +202,10 @@ def badge(text, color):
 import json as _json
 import importlib
 import early_prep as EP
-if not hasattr(EP, "replay_day"):          # Streamlit keeps imported modules alive across redeploys; pick up the new file
+_ep_mtime = os.path.getmtime(EP.__file__)
+if getattr(EP, "_loaded_mtime", None) != _ep_mtime:     # Streamlit keeps imported modules alive across redeploys; reload early_prep whenever its file changed
     EP = importlib.reload(EP)
+    EP._loaded_mtime = _ep_mtime
 
 st_ = L.status()
 USE_LLM = st_["key_present"] or st_["cache_only"]
