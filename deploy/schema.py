@@ -37,9 +37,13 @@ SPLITS = tuple(C.SPLIT) + ("demo",)                     # train, validation, tes
 
 # Not defined in config.py. TODO(spec): confirm these with the team spec.
 DISPOSITIONS = ("admit", "discharge", "lwbs")
-ROLES = ("ed_charge_nurse", "bed_manager", "ed_physician", "inpatient_nurse", "ai") + BLOCKER_OWNERS
+ROLES = ("ed_charge_nurse", "bed_manager", "ed_physician", "inpatient_nurse", "ai", "inpatient_physician", "environmental_services") + BLOCKER_OWNERS   # last two added 2026-11-23 (D5)
 MATCH_STATUS = ("proposed", "accepted", "overridden", "rejected")
-TASK_STATUS = ("open", "done", "cancelled")
+TASK_STATUS = ("open", "waiting", "in_progress", "done", "cancelled")   # waiting = a dependency is not done (added 2026-11-23)
+TASK_TYPES = BLOCKERS + tuple(C.PREP_TAIL_TASKS)                          # blocker types plus discharge_signoff, patient_leaves, bed_cleaning
+HOLD_KINDS = ("soft", "hard", "pooled", "decided")
+HOLD_STATUS = ("active", "converted", "released", "expired")
+HOLD_RELEASE_REASONS = ("p_dropped", "discharged", "lwbs", "wrong_level", "expired", "superseded", "left_ed")
 # Includes the boarding-stage events behind config.STALL_LIMIT_MIN and SCORE_ON_EVENTS.
 # 'transported' = an ADMITTED patient leaves for the inpatient bed; 'departed' = a discharged
 # or LWBS patient leaves. Either one defines visits.left_ed_time (added 2026-11-22).
@@ -165,13 +169,39 @@ SCHEMA = {
     ],
     "tasks": [
         Col("task_id", "str", "Primary key"),
-        Col("visit_id", "str"),
+        Col("visit_id", "str", "For note_extraction tasks and early-prep chains: the INPATIENT whose discharge this task works on"),
         Col("created_time", "datetime"),
-        Col("task_type", "str", "A blocker type", enum=BLOCKERS),
+        Col("task_type", "str", "A blocker type, or discharge_signoff / patient_leaves / bed_cleaning", enum=TASK_TYPES),
         Col("owner_role", "str", enum=ROLES),
         Col("due_time", "datetime"),
         Col("status", "str", enum=TASK_STATUS),
-        Col("source", "str", "'note_extraction' or 'manual'"),
+        Col("source", "str", "'note_extraction', 'early_prep' or 'manual'"),
+        Col("bed_id", "str", "The bed this task frees (early_prep only)"),
+        Col("hold_id", "str", "The hold this task serves (early_prep only)"),
+        Col("depends_on", "str", "task_id list, comma separated (early_prep only)"),
+        Col("start_by_time", "datetime"),
+        Col("duration_min", "float"),
+        Col("priority", "str", "standard or urgent"),
+        Col("critical", "bool", "The chain cannot finish by the claimant's needed-by time"),
+        Col("completed_time", "datetime"),
+    ],
+    "bed_holds": [
+        Col("hold_id", "str", "Primary key"),
+        Col("visit_id", "str", "The ED patient the bed is held for. Empty for a pooled hold (held for a level of care, not a named patient)"),
+        Col("bed_id", "str"),
+        Col("tier", "int", "1 ready, 2 cleaning, 3 discharge-pending"),
+        Col("kind", "str", enum=HOLD_KINDS),
+        Col("level_assumed", "str", enum=BED_TYPES),
+        Col("level_confidence", "float", "Share from the level prior (1.0 once the doctor decides)"),
+        Col("p_at_hold", "float"),
+        Col("p_latest", "float"),
+        Col("needed_by_time", "datetime", "From the decision-time prior (25th percentile)"),
+        Col("realistic_ready_time", "datetime", "Blockers + sign-off + patient leaves + cleaning, from config durations"),
+        Col("critical", "bool"),
+        Col("status", "str", enum=HOLD_STATUS),
+        Col("release_reason", "str", enum=HOLD_RELEASE_REASONS),
+        Col("created_time", "datetime"),
+        Col("updated_time", "datetime"),
     ],
     "audit_log": [
         Col("log_id", "str", "Primary key"),
@@ -195,8 +225,9 @@ FOREIGN_KEYS = {   # (child_table, child_col) -> (parent_table, parent_col)
     ("bed_matches", "visit_id"): ("visits", "visit_id"),
     ("bed_matches", "bed_id"): ("beds", "bed_id"),
     ("tasks", "visit_id"): ("visits", "visit_id"),
+    ("bed_holds", "bed_id"): ("beds", "bed_id"),
 }
-LIVE_TABLES = ("bed_matches", "tasks", "audit_log")
+LIVE_TABLES = ("bed_matches", "tasks", "audit_log", "bed_holds")
 COMPOSITE_KEY_TABLES = ("note_labels",)                   # no single primary key
 # Never allowed as model features: config's list plus the snapshot label.
 LEAKY_COLUMNS = set(C.PROHIBITED_FEATURES) | {"label_admit"}

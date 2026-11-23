@@ -16,7 +16,7 @@ GROQ_API_KEY=your_key_here
 LLM_PROVIDER=groq
 ```
 
-No quotes, no spaces. The key is only needed for the language-model steps (3 and the Case demo tab). Everything else works without it, including the Patient journey tab.
+No quotes, no spaces. The key is only needed for the language-model steps (3 and "Read the case with AI"). Everything else works without it, including the Demo Scenarios tab.
 
 ## 1. Build the data and models (about 5 to 8 minutes, run once)
 
@@ -81,13 +81,10 @@ streamlit run app.py
 
 Opens in your browser. Tabs:
 
-1. **Case demo:** type a patient case in plain words (or pick example A, B, C or D). The AI fills a form, then shows the admit score with its math, the top 3 beds, discharge blockers for occupied beds, and a confirm/override step (an override needs a typed reason). Needs the key for the typed-case reading.
-2. **Patient journey:** the story tab. Pick a patient (start with A, "Looks mild, then isn't") and click **Next** to step through their ED stay: triage, each order, each result, the admit decision. Every step rescores the patient with the real model and shows the facts known so far, the new score and why, and how the ED's total expected admissions and beds move. Needs no key.
-3. **Prepare ahead:** the early-prep loop. Pick a moment in the demo day; see who is flagged and what the system would do (soft hold, early bed request, task chains for a discharge-pending bed, pooled holds for expected shortfalls), mark a task done to watch the chain re-time, and confirm the prompts (writes `bed_holds`, `tasks` and audit rows). Needs no key if the notes were read before (it reads the six discharge-pending notes with the language model, falling back to the keyword reader).
-4. **Bed board:** the 40 beds and their status.
-5. **Extractor test:** run the blocker reader on the 36 template notes or the 12 reworded ones, AI or keyword baseline.
-6. **Audit trail:** every decision you made in the Case demo and Prepare ahead tabs.
-7. **Fairness:** scores, boarding, walkouts and waits by payer group.
+1. **Simulate Scenario:** type a case (or pick example A, B, C or D, which fills every step without the AI key) and follow it through five steps: the typed case and the form the AI filled, orders so far and their results (editable), the admit score with its math, the doctor's admit decision, and bed matching (with the early-prep preview before a decision, and a confirm/override step after one; an override needs a typed reason). The key is only needed for "Read the case with AI".
+2. **Demo Scenarios:** our seeded patients A, B and C. Pick one and click **Next** (or drag the Time slider) through Time 1, 2, 3 and so on. Each time shows the same five steps as Simulate Scenario, using only what was known then. Needs no key.
+3. **Bed Board:** a grid of all 40 beds by unit. Colour shows status (ready, being cleaned, occupied, discharge pending), lighter tint means longer until ready, and outlines show beds the early-prep loop holds for likely or decided patients. Hover a bed, or pick it below, for details, its blocker note, its task chain and a mark-done button. Pick a moment in the demo day with the slider. Tables, the confirm button and the time-saved scenarios are in the expanders. Needs no key if the notes were read before.
+**Sidebar pages (open in a new browser tab, bottom of the left sidebar):** **Extractor test** (run the blocker reader on the 36 template notes or the 12 reworded ones, AI or keyword baseline), **Audit trail** (every decision made in the app) and **Fairness check** (scores, boarding, walkouts and waits by payer group). They are the same app with `?page=extractor`, `?page=audit` or `?page=fairness` on the address.
 
 What to look for in the journey for patient A (a plain med-surg case): 14% at triage, 21% after the CT order, 77% when the lab result returns abnormal at 10:46, 79% after the CT result at 12:05, then the admit decision at 12:28. In Prepare ahead, A is flagged at 10:46 (a 102 minute lead), a ready med-surg bed is held and the bed request is ready to send; at 12:28 the hold converts.
 
@@ -98,7 +95,7 @@ Replay saved AI answers with no internet and no rate limits:
 - Mac / Linux: `LLM_CACHE_ONLY=1 streamlit run app.py`
 - Windows PowerShell: `$env:LLM_CACHE_ONLY="1"; streamlit run app.py`
 
-Click through every Case demo example you plan to show once with the key first (so the answers are saved), then record in this mode. An uncached case shows an error in this mode instead of calling out. The Patient journey, Bed board, Audit trail and Fairness tabs never need the key.
+Click "Read the case with AI" on every example you plan to show once with the key first (so the answers are saved), then record in this mode. An uncached case shows an error in this mode instead of calling out. Demo Scenarios, Bed Board, Audit trail and Fairness never need the key.
 
 ## 6. Where things are
 
@@ -107,8 +104,8 @@ Click through every Case demo example you plan to show once with the key first (
 | `config.py` | Every setting, tagged [SPEC], [LIT] or [ASSUMPTION] |
 | `data/` | Generated tables, notes, `fairness_report.csv`, `demo_manifest.json`, AI answer cache |
 | `models/` | `admit_model.joblib` and `demand_forecaster.joblib` (the trained models; only load your own files), plus accuracy files |
-| `app.py`, `case_engine.py` | The demo app and the logic behind the Case demo tab |
-| `journey.py` | The step-by-step replay behind the Patient journey tab |
+| `app.py`, `case_engine.py` | The demo app and the logic behind the Simulate Scenario tab |
+| `journey.py` | The step-by-step replay behind the Demo Scenarios tab |
 | `early_prep.py`, `build_priors.py`, `scenario_model.py` | The early-prep loop engine (tiered holds, task chains, pooled holds), its priors and the boarding-time scenarios |
 | `test_early_prep.py` | The 10 loop checks |
 | `intake.py`, `extract_blockers.py`, `llm_client.py` | The language-model readers and client |

@@ -1,41 +1,41 @@
 bed_id,unit,bed_type,isolation_capable,status,discharge_pending,current_visit_id,status_updated_time,expected_ready_time
 ICU-01,icu,icu,True,occupied,False,V-084348,2026-10-29 10:52:13,
-ICU-02,icu,icu,True,occupied,False,V-084870,2026-10-31 23:55:29,
+ICU-02,icu,icu,True,occupied,False,V-084870,2026-10-31 23:55:28,
 ICU-03,icu,icu,False,ready,False,,2026-11-04 08:59:00,2026-11-04 08:59:00
 ICU-04,icu,icu,False,cleaning,False,,2026-11-04 10:18:00,2026-11-04 10:55:00
-ICU-05,icu,icu,False,occupied,True,V-084454,2026-10-29 21:34:59,2026-11-04 12:00:00
-ICU-06,icu,icu,False,occupied,False,V-084638,2026-10-30 16:12:39,
-CARD-01,cardiac,telemetry,False,occupied,False,V-084043,2026-10-27 22:27:11,
-CARD-02,cardiac,telemetry,False,occupied,False,V-084946,2026-10-31 22:34:04,
+ICU-05,icu,icu,False,occupied,True,V-084454,2026-10-29 21:34:55,2026-11-04 12:00:00
+ICU-06,icu,icu,False,occupied,False,V-084638,2026-10-30 16:11:39,
+CARD-01,cardiac,telemetry,False,occupied,False,V-084043,2026-10-27 22:27:12,
+CARD-02,cardiac,telemetry,False,occupied,False,V-084946,2026-10-31 22:33:52,
 CARD-03,cardiac,telemetry,True,ready,False,,2026-11-04 10:11:00,2026-11-04 10:11:00
-CARD-04,cardiac,telemetry,False,occupied,True,V-084508,2026-10-29 23:16:35,2026-11-04 11:20:00
+CARD-04,cardiac,telemetry,False,occupied,True,V-084508,2026-10-29 23:16:17,2026-11-04 11:20:00
 CARD-05,cardiac,telemetry,False,cleaning,False,,2026-11-04 10:25:00,2026-11-04 10:45:00
 CARD-06,cardiac,telemetry,False,occupied,False,V-084378,2026-10-29 18:21:17,
-CARD-07,cardiac,telemetry,False,occupied,False,V-084054,2026-10-27 21:43:49,
-CARD-08,cardiac,telemetry,False,occupied,False,V-084911,2026-10-31 22:49:37,
-CARD-09,cardiac,telemetry,True,occupied,True,V-084254,2026-10-29 02:19:58,2026-11-04 11:30:00
-CARD-10,cardiac,telemetry,False,occupied,False,V-084443,2026-10-29 17:49:18,
+CARD-07,cardiac,telemetry,False,occupied,False,V-084054,2026-10-27 21:42:49,
+CARD-08,cardiac,telemetry,False,occupied,False,V-084911,2026-10-31 22:49:52,
+CARD-09,cardiac,telemetry,True,occupied,True,V-084254,2026-10-29 02:19:27,2026-11-04 11:30:00
+CARD-10,cardiac,telemetry,False,occupied,False,V-084443,2026-10-29 17:49:48,
 CARD-11,cardiac,telemetry,False,ready,False,,2026-11-04 09:59:00,2026-11-04 09:59:00
 CARD-12,cardiac,telemetry,False,blocked,False,,2026-11-03 12:30:00,
-GEN-01,general,med_surg,False,occupied,True,V-084903,2026-10-31 19:00:49,2026-11-04 11:15:00
+GEN-01,general,med_surg,False,occupied,True,V-084903,2026-10-31 19:00:05,2026-11-04 11:15:00
 GEN-02,general,med_surg,True,occupied,False,V-084721,2026-10-31 04:32:31,
-GEN-03,general,med_surg,False,occupied,False,V-084655,2026-10-30 18:05:06,
+GEN-03,general,med_surg,False,occupied,False,V-084655,2026-10-30 18:05:05,
 GEN-04,general,med_surg,False,cleaning,False,,2026-11-04 10:20:00,2026-11-04 10:50:00
-GEN-05,general,med_surg,False,occupied,False,V-084669,2026-10-30 19:22:47,
-GEN-06,general,med_surg,False,occupied,False,V-083969,2026-10-27 17:26:48,
+GEN-05,general,med_surg,False,occupied,False,V-084669,2026-10-30 19:22:22,
+GEN-06,general,med_surg,False,occupied,False,V-083969,2026-10-27 17:26:06,
 GEN-07,general,med_surg,False,ready,False,,2026-11-04 09:48:00,2026-11-04 09:48:00
-GEN-08,general,med_surg,False,occupied,False,V-084789,2026-10-31 04:36:23,
-GEN-09,general,med_surg,False,occupied,False,V-084205,2026-10-28 19:13:36,
-GEN-10,general,med_surg,False,occupied,False,V-084151,2026-10-28 17:19:37,
-PULM-01,pulmonary,med_surg,True,occupied,False,V-084936,2026-10-31 22:26:22,
-PULM-02,pulmonary,med_surg,False,occupied,False,V-084807,2026-10-31 06:56:50,
-PULM-03,pulmonary,med_surg,False,occupied,False,V-084350,2026-10-29 14:30:22,
+GEN-08,general,med_surg,False,occupied,False,V-084789,2026-10-31 04:36:40,
+GEN-09,general,med_surg,False,occupied,False,V-084205,2026-10-28 19:12:57,
+GEN-10,general,med_surg,False,occupied,False,V-084151,2026-10-28 17:18:58,
+PULM-01,pulmonary,med_surg,True,occupied,False,V-084936,2026-10-31 22:25:28,
+PULM-02,pulmonary,med_surg,False,occupied,False,V-084807,2026-10-31 06:55:54,
+PULM-03,pulmonary,med_surg,False,occupied,False,V-084350,2026-10-29 14:29:41,
 PULM-04,pulmonary,med_surg,False,cleaning,False,,2026-11-04 10:25:00,2026-11-04 11:00:00
-PULM-05,pulmonary,med_surg,False,occupied,True,V-084803,2026-10-31 06:45:19,2026-11-04 11:45:00
+PULM-05,pulmonary,med_surg,False,occupied,True,V-084803,2026-10-31 06:44:35,2026-11-04 11:45:00
 PULM-06,pulmonary,med_surg,False,occupied,False,V-084643,2026-10-30 16:55:27,
-NEURO-01,neuro,med_surg,False,occupied,True,V-084469,2026-10-30 02:49:23,2026-11-04 12:20:00
-NEURO-02,neuro,med_surg,True,occupied,False,V-084362,2026-10-29 17:11:26,
-NEURO-03,neuro,med_surg,False,occupied,False,V-083881,2026-10-27 04:29:26,
+NEURO-01,neuro,med_surg,False,occupied,True,V-084469,2026-10-30 02:48:31,2026-11-04 12:20:00
+NEURO-02,neuro,med_surg,True,occupied,False,V-084362,2026-10-29 17:10:35,
+NEURO-03,neuro,med_surg,False,occupied,False,V-083881,2026-10-27 04:29:29,
 NEURO-04,neuro,med_surg,False,occupied,False,V-084455,2026-10-30 11:40:32,
-NEURO-05,neuro,med_surg,False,occupied,False,V-083865,2026-10-27 03:49:26,
+NEURO-05,neuro,med_surg,False,occupied,False,V-083865,2026-10-27 03:49:27,
 NEURO-06,neuro,med_surg,False,blocked,False,,2026-11-01 14:30:00,

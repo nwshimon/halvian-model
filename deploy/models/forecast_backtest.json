@@ -1,38 +1,38 @@
 {
   "2": {
-    "mean_actual": 0.6303849679193401,
-    "mean_forecast": 0.6683690874323548,
-    "bias_pct": 6.025543349865359,
-    "mae": 0.4598796613984468,
-    "mae_baseline": 0.6265201919447889,
-    "coverage90": 0.9291934005499541,
-    "scaled_hospital_mean": 3.129466316618614,
+    "mean_actual": 0.6154903758020165,
+    "mean_forecast": 0.6488378573200232,
+    "bias_pct": 5.4180345995748835,
+    "mae": 0.44867643417158426,
+    "mae_baseline": 0.6062687586491975,
+    "coverage90": 0.9295371219065078,
+    "scaled_hospital_mean": 3.1057691862969072,
     "n_times": 8728.0,
-    "mean_from_in_ed": 0.6267478236177495,
-    "mean_from_arrivals": 0.027618656283802546
+    "mean_from_in_ed": 0.6074531300654141,
+    "mean_from_arrivals": 0.027611150226085006
   },
   "4": {
-    "mean_actual": 1.2612282309807517,
-    "mean_forecast": 1.2650998067387709,
-    "bias_pct": 0.3069686883720113,
-    "mae": 0.7523232499045833,
-    "mae_baseline": 0.91625447062418,
-    "coverage90": 0.916704857928506,
-    "scaled_hospital_mean": 6.261207781413614,
+    "mean_actual": 1.2313244729605866,
+    "mean_forecast": 1.2351034969429582,
+    "bias_pct": 0.30690724218982446,
+    "mae": 0.7359691404367704,
+    "mae_baseline": 0.8832359231501951,
+    "coverage90": 0.9200274977085243,
+    "scaled_hospital_mean": 6.213272793211627,
     "n_times": 8728.0,
-    "mean_from_in_ed": 0.7378977419584362,
-    "mean_from_arrivals": 0.4812457995926102
+    "mean_from_in_ed": 0.7148934995612625,
+    "mean_from_arrivals": 0.47546906981615406
   },
   "8": {
-    "mean_actual": 2.5238313473877176,
-    "mean_forecast": 2.5248757669815594,
-    "bias_pct": 0.041382305316184365,
-    "mae": 1.1870395771067583,
-    "mae_baseline": 1.3203518987796767,
-    "coverage90": 0.9084555453712191,
-    "scaled_hospital_mean": 12.529241007356385,
+    "mean_actual": 2.4641384051329056,
+    "mean_forecast": 2.47689670281067,
+    "bias_pct": 0.5177589721092168,
+    "mae": 1.160413766766652,
+    "mae_baseline": 1.2779655290163727,
+    "coverage90": 0.9133822181484876,
+    "scaled_hospital_mean": 12.434061409100444,
     "n_times": 8728.0,
-    "mean_from_in_ed": 0.7478738418091138,
-    "mean_from_arrivals": 1.7295443444437681
+    "mean_from_in_ed": 0.7252354927976832,
+    "mean_from_arrivals": 1.7053739074984176
   }
 }

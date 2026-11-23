@@ -1,0 +1,47 @@
+{
+ "n_admits_test": 2698,
+ "baseline_median_h": 3.59,
+ "lead_time_by_threshold": {
+  "0.4": {
+   "share_of_admits_flagged": 0.663,
+   "median_lead_min": 120,
+   "p25": 96,
+   "p75": 145
+  },
+  "0.6": {
+   "share_of_admits_flagged": 0.483,
+   "median_lead_min": 111,
+   "p25": 88,
+   "p75": 135
+  },
+  "0.8": {
+   "share_of_admits_flagged": 0.243,
+   "median_lead_min": 102,
+   "p25": 81,
+   "p75": 124
+  }
+ },
+ "scenarios": {
+  "conservative": {
+   "median_boarding_h": 3.1,
+   "change": -0.136,
+   "r": 0.5,
+   "s": 0.5,
+   "f": 0.15
+  },
+  "base": {
+   "median_boarding_h": 2.75,
+   "change": -0.234,
+   "r": 0.75,
+   "s": 0.6,
+   "f": 0.25
+  },
+  "optimistic": {
+   "median_boarding_h": 2.28,
+   "change": -0.365,
+   "r": 1.0,
+   "s": 0.8,
+   "f": 0.4
+  }
+ }
+}

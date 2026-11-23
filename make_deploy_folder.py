@@ -14,9 +14,10 @@ import pandas as pd
 
 OUT = "deploy"
 CODE = ["app.py", "case_engine.py", "journey.py", "intake.py", "extract_blockers.py", "llm_client.py", "fairness.py",
-        "admit_model.py", "bed_rules.py", "config.py", "schema.py", "requirements.txt", "demand_forecast.py", ".gitignore"]
+        "admit_model.py", "bed_rules.py", "config.py", "schema.py", "requirements.txt", "demand_forecast.py",
+        "early_prep.py", ".gitignore"]
 SMALL = ["beds.csv", "demo_manifest.json", "inpatient_notes.csv", "note_labels.csv", "note_meta.csv", "notes_unseen.csv",
-         "notes_unseen_labels.csv", "occupancy_hourly.csv", "fairness_report.csv", "llm_cache.json"]
+         "notes_unseen_labels.csv", "occupancy_hourly.csv", "fairness_report.csv", "llm_cache.json", "priors.json"]
 BIG = ["visits.csv", "events.csv", "snapshots.csv", "vitals.csv"]
 
 if os.path.exists(OUT):

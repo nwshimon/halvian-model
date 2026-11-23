@@ -264,9 +264,9 @@ FORECAST_INTERVAL_Z = 1.645           # 90% range
 # ---------------------------------------------------------------------------
 ALERT_ON_CATEGORY_CHANGE = True       # [SPEC] alert only when category, bed type changes or a stage stalls
 STALL_LIMIT_MIN = {                   # [ASSUMPTION]
-    "admit_decided_to_bed_requested": 15,
+    "admit_decided_to_bed_requested": 90,   # was 15; the realistic median is now about 50 min
     "bed_requested_to_bed_matched": 30,
-    "bed_matched_to_bed_ready": 270,   # was 45; at a 3.5 h median boarding the bed-ready wait is the long stage
+    "bed_matched_to_bed_ready": 180,   # median about 114 min; the bed-ready wait is still the longest stage
     "bed_ready_to_report_given": 20,
     "report_given_to_transported": 20,
 }
@@ -300,6 +300,8 @@ MATCH_REASON_CODES = {                # shown next to each recommendation [SPEC:
     "exact_level_of_care": "Exact level of care match",
     "preferred_unit": "In the preferred unit",
     "isolation_bed_wasted": "Uses a scarce isolation bed",
+    "prepared_ahead": "Prepared ahead of the decision (hold from the admit forecast)",
+    "fits_needed_by": "Ready by the time the doctor is expected to decide",
 }
 MATCH_TOP_N = 3                       # [SPEC] best match plus two alternatives
 
@@ -363,7 +365,10 @@ DISCHARGE_DELAY_MIN = (20, 90)        # last result (or provider visit) -> disch
 # Boarding total = lognormal(median MEDIAN_BOARDING_HOURS, BOARDING_SIGMA). It is split across the five stages
 # with Dirichlet weights; the bed-ready wait dominates, as in real boarding.
 BOARDING_STAGE_ORDER = ["bed_requested", "bed_matched", "bed_ready", "report_given", "transported"]
-BOARDING_STAGE_ALPHA = [0.4, 1.0, 12.0, 0.8, 0.8]   # medians about 2 / 10 / 167 / 7 / 7 min of a 3.5 h boarding
+# DECISION 2026-11-23 (D8): the brief fixes only the TOTAL (3.5 h median). The split across stages is NOT in the brief, so it comes from
+# the literature: decision -> bed request ~50 min (one center measured a 75 min mean), request -> match ~8, match -> bed ready ~114
+# (cleaning ~68-115 min plus discharge lag), then report ~10 and transport ~10. Weights tuned so the stage MEDIANS land there.
+BOARDING_STAGE_ALPHA = [4.4, 1.0, 9.6, 1.2, 1.2]   # medians about 50 / 8 / 114 / 10 / 10 min of a 3.5 h boarding [LIT split, BRIEF total]
 BOARDING_MIN_STAGE_MIN = 1.0          # no stage shorter than this
 VITAL_REPEAT_SD_SHARE = 0.7           # share of each vital's baseline SD that is a fixed per-patient offset
 VITAL_NOISE_SD_SHARE = 0.3            # per-measurement noise
@@ -492,3 +497,38 @@ if __name__ == "__main__":
     print(f"  test-set uninsured visits    : ~{int(N_HISTORY_VISITS_EXPECTED * SPLIT['test'] * PAYER_MIX['uninsured'])}")
     print(f"  test-set uninsured admits    : ~{int(N_HISTORY_VISITS_EXPECTED * SPLIT['test'] * PAYER_MIX['uninsured'] * ADMIT_RATE_TARGET)}")
     print(f"  model features               : {len(MODEL_FEATURES)}")
+
+# ---------------------------------------------------------------------------
+# 12. Early-prep loop (added 2026-11-23, approved decisions D1-D10)
+# ---------------------------------------------------------------------------
+# Action tiers by cost of being wrong (lever 1). p = admit probability from the model.
+PREP_SOFT_THRESHOLD = 0.40           # [APPROVED D2] reversible, near-zero cost: soft hold on a ready/cleaning bed, EVS standby, drafted bed request
+PREP_EXPEDITE_THRESHOLD = 0.60       # [APPROVED D2] costs staff effort: send bed request, tasks on a discharge-pending bed
+PREP_URGENT_THRESHOLD = 0.85         # [APPROVED D2] urgent priority and escalation
+PREP_RELEASE_BELOW = 0.28            # [APPROVED D2, revised for the soft tier] hysteresis: a hold is released only when p falls below this
+PREP_NEEDED_BY_PERCENTILE = "p25"    # [APPROVED D3] plan to the early end of the decision-time prior
+PREP_PLACEMENT_MAX_HOURS = 24        # placement is days, not hours: excluded from tier-3 unless the bed is needed 24 h or more away
+PREP_POOL_HORIZON_HOURS = 8          # [APPROVED D6] pooled holds look this far ahead (8 h, because a discharge chain alone takes about 3.3 h; one of the forecaster's 2/4/8 h horizons)
+PREP_POOL_MIN_SHORTFALL = 0.5        # start a pooled chain when expected demand exceeds supply by at least this many beds
+PREP_LATENESS_PENALTY = -0.05        # per minute the realistic ready time is later than needed-by (added to the bed score)
+
+# Task durations in minutes, normal / expedited. "Expedited" means a human has prioritised the task, not that anyone works faster.
+# Sources are in early-prep-realistic-durations.md (UCLA and med-surg QI for discharge, MD Anderson for cleaning, pharmacy studies, Brigham PT standard).
+PREP_TASK_MINUTES = {
+    "discharge_signoff":     (20, 15),     # [ASSUMPTION] physician enters the discharge order once blockers clear
+    "patient_leaves":        (90, 66),     # [SOURCE] discharge order -> patient leaves the bed: UCLA 171->88, med-surg QI 94->66
+    "bed_cleaning":          (90, 68),     # [SOURCE] MD Anderson 115 -> 68 min turnaround
+    "medications":           (60, 30),     # [SOURCE] pharmacy reconciliation 76->30 / 73->48
+    "paperwork":             (60, 30),     # [ASSUMPTION] signature-only forms
+    "pt_evaluation":         (480, 180),   # [SOURCE] Brigham: same day only if flagged as imminent discharge
+    "family":                (120, 60),    # [ASSUMPTION]
+    "transport":             (180, 120),   # [SOURCE] one state Medicaid standard: pickup within 3 h urban
+    "home_oxygen_equipment": (360, 180),   # [SOURCE] delivery can take up to 24 h; 6 h normal / 3 h expedited here
+    "placement":             (4320, 2880), # [SOURCE] days, not hours
+}
+PREP_TAIL_TASKS = ("discharge_signoff", "patient_leaves", "bed_cleaning")   # always run in this order after the last blocker clears
+PREP_TASK_OWNERS = {                 # roles that own the non-blocker tasks [APPROVED D5]
+    "discharge_signoff": "inpatient_physician", "patient_leaves": "inpatient_nurse", "bed_cleaning": "environmental_services",
+}
+# Scenario results for the video (D10: headline the base case). Produced by scenario_model.py; a scenario, not a measurement.
+SCENARIO_MEDIAN_BOARDING_HOURS = {"baseline": 3.59, "conservative": 3.10, "base": 2.75, "optimistic": 2.28}   # re-run by scenario_model.py on the regenerated data (test-split median 3.59 h)
