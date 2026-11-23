@@ -193,7 +193,10 @@ def badge(text, color):
 
 # ------------------------------------------------------------------ shared pieces
 import json as _json
+import importlib
 import early_prep as EP
+if not hasattr(EP, "replay_day"):          # Streamlit keeps imported modules alive across redeploys; pick up the new file
+    EP = importlib.reload(EP)
 
 st_ = L.status()
 USE_LLM = st_["key_present"] or st_["cache_only"]
