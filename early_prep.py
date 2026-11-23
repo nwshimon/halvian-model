@@ -109,9 +109,10 @@ def chain_feasible(blocker_types, needed_by, now):
 
 
 # ------------------------------------------------------------------ claimants
-def claimants_at(t, J, pri):
+def claimants_at(t, J, pri, keep_matched=False):
     """Demo patients that want a bed at time t, from the journey data (scores are the real model's).
-    decided: the admit decision is made and no bed is matched yet. likely: no decision yet, score >= soft threshold."""
+    decided: the admit decision is made and no bed is matched yet. likely: no decision yet, score >= soft threshold.
+    keep_matched: the day replay assigns beds itself, so a patient keeps claiming until the replay assigns them (the data's own match time is ignored)."""
     v, ev, sn = J["visits"], J["events"], J["snap"]
     out = []
     for vid, r in v.iterrows():
@@ -119,7 +120,7 @@ def claimants_at(t, J, pri):
             continue
         adm = pd.notna(r["disposition_time"]) and r["disposition"] == "admit"
         if adm and r["disposition_time"] <= t:
-            if pd.notna(r["bed_matched_time"]) and pd.Timestamp(r["bed_matched_time"]) <= t:
+            if not keep_matched and pd.notna(r["bed_matched_time"]) and pd.Timestamp(r["bed_matched_time"]) <= t:
                 continue                                              # already matched by the normal flow
             out.append({"visit_id": vid, "kind": "decided", "p": 1.0, "level": r["requested_level_of_care"],
                         "level_confidence": 1.0, "isolation": bool(r["isolation_required"]),
@@ -470,7 +471,7 @@ def sim_claimants(t, sims, pri, assigned_ids=frozenset()):
         if not steps:
             continue
         lv_pref = C.PREFERRED_UNIT_BY_COMPLAINT.get(s["complaint"])
-        if t >= pd.Timestamp(s["decision_time"]):
+        if s.get("decision_time") is not None and t >= pd.Timestamp(s["decision_time"]):
             out.append({"visit_id": s["patient_id"], "kind": "decided", "p": 1.0, "level": s["level"], "level_confidence": 1.0, "isolation": bool(s["isolation"]),
                         "preferred_unit": lv_pref, "decision_time": pd.Timestamp(s["decision_time"]), "needed_by": t, "pending": 0, "complaint": s["complaint"]})
             continue
@@ -497,17 +498,44 @@ def board_with_assigns(beds, t, assigns):
     return b, gone
 
 
-def replay_day(times, J, beds, blockers, pri, forecast_at_now=None, now=None, sims=(), assigns=None):
-    """plan() at every time of the day, carrying holds forward. Demo patients plus any patients the user added. A bed the user assigned is occupied from
-    the assignment time on, and its patient stops claiming."""
+def replay_day(times, J, beds, blockers, pri, forecast_at_now=None, now=None, sims=(), assigns=None, exclude=()):
+    """plan() at every time of the day, carrying holds forward. Demo patients plus any patients the user added. A bed that is assigned is occupied from
+    the assignment time on, and its patient stops claiming.
+    Assignments come from two places and are treated the same once made:
+      the user, in the simulation (assigns), and
+      early prep, for any patient whose admit decision is made (demo or simulated: a patient in the bed queue counts as approved): the moment the bed
+      they hold is ready (it just finished cleaning, or was already ready) it is assigned to them and is occupied again.
+      A bed nobody holds just stays ready. The patient must have held that same bed on the previous tick, so a bed never goes occupied straight from a non-outlined state.
+    exclude: visit ids that never claim a bed here (the scripted patients that live only on the Demo Scenarios tab).
+    Each state carries res["assigns"], every assignment made up to that time."""
     holds, out = None, []
+    user = dict(assigns or {})
+    auto = {}
     for t in times:
         t = pd.Timestamp(t)
-        b, gone = board_with_assigns(beds, t, assigns)
-        cl = claimants_at(t, J, pri) + sim_claimants(t, sims, pri, gone)
+        everything = {**auto, **user}
+        b, gone = board_with_assigns(beds, t, everything)
+        cl = [c for c in claimants_at(t, J, pri, keep_matched=True) if c["visit_id"] not in gone and c["visit_id"] not in exclude] + sim_claimants(t, sims, pri, gone)
         fc = forecast_at_now if (now is not None and t == pd.Timestamp(now)) else None
         res = plan(t, b, cl, blockers, pri, prior_holds=holds, forecast=fc)
-        res["claimants"], res["board"] = cl, b
+        # A bed only turns occupied after the patient already held it on the previous tick (soft, expedited or admitted), so the hold is always visible
+        # first. Only a human assignment (user, above) can skip that.
+        seen = {(h["visit_id"], h["bed_id"]) for h in (holds or [])}
+        landed = [h for h in res["holds"] if h["kind"] == "decided" and h["visit_id"] and (h["visit_id"], h["bed_id"]) in seen
+                  and h["bed_id"] not in everything and (b.loc[b["bed_id"] == h["bed_id"], "status"] == "ready").any()]
+        if landed:
+            dec_of = {c["visit_id"]: c.get("decision_time") for c in cl}
+            for h in landed:
+                row = b[b["bed_id"] == h["bed_id"]].iloc[0]
+                at = max([x for x in (dec_of.get(h["visit_id"]), row["expected_ready_time"]) if x is not None and pd.notna(x)] or [t])
+                at = min(t, max(pd.Timestamp(at), t - pd.Timedelta(minutes=14)))      # the moment it became possible, not the next 15-minute tick
+                auto[h["bed_id"]] = {"patient_id": h["visit_id"], "role": "Early prep (approved patient)", "time": f"{at:%H:%M}", "level": h["level_assumed"],
+                                     "overridden": False, "assign_time": at, "auto": True}
+            done = {h["hold_id"] for h in landed}
+            res["holds"] = [h for h in res["holds"] if h["hold_id"] not in done]
+            res["tasks"] = [k for k in res["tasks"] if k["hold_id"] not in done]
+            b, _ = board_with_assigns(beds, t, {**auto, **user})
+        res["claimants"], res["board"], res["assigns"] = cl, b, {**auto, **user}
         holds = res["holds"]
         out.append(res)
     return out

@@ -140,6 +140,13 @@ def load_example():
     _apply_example(st.session_state["example_pick"])
 
 
+def do_queue():
+    """'Submit to AI Queue': read the note with the AI, then put the patient on the bed board as a provisional (not yet admitted) patient."""
+    s = st.session_state
+    do_parse()
+    s["provisional"] = {"patient_id": f"SIM-{s['submitted_n'] + 1:03d}", "sim": None}     # the sim is filled in on this same run, once the case is built
+
+
 def do_parse():
     s = st.session_state
     try:
@@ -389,6 +396,7 @@ TEMPLATE_TEXT = ("[age band] year old with [complaint], ESI [1-5], [N] minutes s
 def _sim_init():
     s = st.session_state
     s.setdefault("queue", [])
+    s.setdefault("provisional", None)
     s.setdefault("assignments", {})
     s.setdefault("frozen", False)
     s.setdefault("score_hist", [])
@@ -418,6 +426,7 @@ def sim_timeline(case, arrival):
 def sim_restart():
     s = st.session_state
     s["frozen"] = False
+    s["provisional"] = None          # restarting before an admit means the patient left (discharged or LWBS): their holds are released
     s["score_hist"] = []
     s["f_approve"] = False
     _apply_example(s["example_pick"])
@@ -448,7 +457,10 @@ def simulate_patient():
             with st.expander("How do I write this? Template with placeholders"):
                 st.code(TEMPLATE_TEXT, language=None)
                 st.caption("Everything in square brackets is a value to fill in. Assume the note contains everything the model needs; this tab is a baseline of the data model, not a test of the AI's reading.")
-            st.button("Read with AI", type="primary", on_click=do_parse, disabled=frozen)
+            st.button("Submit to AI Queue", type="primary", on_click=do_queue, disabled=frozen or bool(s.get("provisional")), key="sim_queue")
+            if s.get("provisional") and not frozen:
+                st.caption(f"{pid} is on the Bed Board as a likely patient (no admit decision yet). Edit the case to see the score and holds move, "
+                           "then submit the bed request, or start a new patient scenario if they leave.")
             info = s["parse_info"]
             if info and "error" in info:
                 st.error(f"The AI reader is not available ({info['error']}). Fill in the form on the right by hand; every step after this still works.")
@@ -487,6 +499,11 @@ def simulate_patient():
         sc = E.score_case(case, W)
         if not frozen and (not s["score_hist"] or abs(s["score_hist"][-1] - sc["p"]) > 0.0005):
             s["score_hist"].append(sc["p"])
+        if s.get("provisional") and not frozen:     # keep the board in step with the case as it is edited
+            arr_ = pd.Timestamp(f"{C.DEMO_DATE} {s['f_arrive']}")
+            steps_, _dec = sim_timeline(case, arr_)
+            s["provisional"]["sim"] = {"patient_id": pid, "arrival": arr_, "steps": steps_, "decision_time": None, "level": s["f_level"],
+                                       "isolation": s["f_iso_choice"] == "Yes", "complaint": case["complaint_category"], "esi": int(case["esi"])}
         if assumed:
             st.caption("Not stated, so typical values were used for the score: " + ", ".join(assumed))
 
@@ -509,11 +526,12 @@ def simulate_patient():
                                "p": sc["p"], "band": sc["band"], "top3": sc["top3"], "pending": int(sc["features"]["pending_results_so_far"]),
                                "status": "queued", "bed": None, "sim": sim})
             s["submitted_n"] += 1
+            s["provisional"] = None
             s["frozen"] = True
             st.rerun()
         if frozen:
-            st.success(f"{pid} arrives at {s['f_arrive']} and is in the bed queue. The bed manager can match it under Simulate Bed Assignments, and the Bed Board shows it from {s['f_arrive']}. The score on the right is frozen until you press Restart.")
-        st.button("Restart", on_click=sim_restart, key="sim_restart")
+            st.success(f"{pid} arrives at {s['f_arrive']} and is in the bed queue. The bed manager can match it under Simulate Bed Assignments, and the Bed Board shows it from {s['f_arrive']}. The score on the right is frozen until you start a new patient scenario.")
+        st.button("New patient scenario", on_click=sim_restart, key="sim_restart")
 
     with live:
         st.markdown("#### Admit score so far")
@@ -538,23 +556,32 @@ def simulate_beds():
     st.markdown("### Nurse / bed management side")
     st.caption("You are the bed manager. Patients the doctor has submitted wait in the queue. Pick one, review the best-matching beds, and confirm. "
                "The assignment then shows on the Bed Board.")
-    q = s["queue"]
-    if not q:
-        st.info("The queue is empty. Submit a patient under Simulate Patient Scenario (or pick one of the demo patients there) and they will appear here.")
-        return
+    ents = queue_entries()
     step_title(1, "Beds in queue")
-    st.dataframe(pd.DataFrame([{"Patient": x["patient_id"], "Submitted": x["time"], "Admit score": f"{x['p']:.0%}", "Complaint": x["case"]["complaint_category"].replace("_", " "),
-                                "Bed type": x["case"]["requested_level_of_care"].replace("_", "-"), "Isolation": "yes" if x["case"]["isolation_required"] else "no",
-                                "Arrives": f"{pd.Timestamp(x['sim']['arrival']):%H:%M}", "Doctor decides": f"{pd.Timestamp(x['sim']['decision_time']):%H:%M}",
-                                "Status": "queued" if x["status"] == "queued" else f"assigned to {x['bed']}"} for x in q]), hide_index=True, width="stretch")
-    waiting = [x for x in q if x["status"] == "queued"]
-    if not waiting:
+    st.caption("Patients with a bed show where it came from. Click a patient with no bed yet to review the ranked beds and assign one yourself.")
+    rows = [{"Patient": e["patient_id"], "Admit score": f"{e['p']:.0%}", "Complaint": str(e["case"]["complaint_category"]).replace("_", " "),
+             "Bed type": str(e["case"]["requested_level_of_care"]).replace("_", "-"), "Isolation": "yes" if e["case"]["isolation_required"] else "no",
+             "Arrives": f"{e['arrival']:%H:%M}", "Doctor decides": f"{e['decision']:%H:%M}",
+             "Status": (lambda b: f"assigned to {b[0]} at {b[1]['time']} ({_how(b[1])})" if b else "queued, no bed yet")(bed_of(e["patient_id"]))} for e in ents]
+    sel = st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row", key=f"bq_table_{s.get('bq_ver', 0)}")
+    if not any(s_["Status"].startswith("queued") for s_ in rows):
         st.success("Every queued patient has a bed. See the Bed Board for the assignments.")
         return
-    pick = st.selectbox("Patient to match", [x["patient_id"] for x in waiting], key="bq_pick",
-                        format_func=lambda i: next(f"{i}: {x['case']['complaint_category'].replace('_', ' ')}, ESI {int(x['case']['esi'])}, {x['p']:.0%} admit score" for x in waiting if x["patient_id"] == i))
-    item = next(x for x in waiting if x["patient_id"] == pick)
-    tdec = pd.Timestamp(item["sim"]["decision_time"])
+    tws = twin_story()
+    if tws:
+        st.caption(f"Fairness twins {tws[0]['Patient']} (commercial) and {tws[1]['Patient']} (uninsured) are the same clinical case with the same {tws[0]['Admit score']} score and the same matching rule. "
+                   "Any difference in their wait is bed supply, not payer: the first twin took the one ICU bed that was ready, so the second had to wait for the next one. "
+                   "<a href='?page=fairness' target='_blank'>Open the Fairness check ↗</a>", unsafe_allow_html=True)
+    picked = sel.selection.rows[0] if sel.selection.rows else None
+    if picked is None:
+        st.info("Click a patient marked \"queued, no bed yet\" to match them.")
+        return
+    item = ents[picked]
+    pick = item["patient_id"]
+    if bed_of(pick):
+        st.info(f"{pick} already has a bed ({bed_of(pick)[0]}). Click a queued patient to match.")
+        return
+    tdec = item["decision"]
     board, mine, n_other = free_board(tdec, item["patient_id"])
     st.caption(f"Bed board as of {tdec:%H:%M}, when the doctor decides. {n_other} beds are held for other patients at that time and are left out. "
                + (f"Early prep has already held {mine['bed_id']} for this patient since {pd.Timestamp(mine['created_time']):%H:%M}." if mine else "Early prep had not held a bed for this patient."))
@@ -564,7 +591,22 @@ def simulate_beds():
              + (f", preferred unit **{pat['preferred_unit']}**" if pat["preferred_unit"] else "")
              + f". {mt['n_feasible']} of {mt['n_beds']} beds can take this patient now or soon (beds already assigned in this simulation are excluded).")
     if not mt["ranked"]:
-        st.error("No bed fits. Escalate to the bed manager.")
+        st.error("No bed passes the rules" + (" (every isolation-capable bed that could serve this patient is occupied or held)" if pat["isolation_required"] else "") + ". Escalate, or override below.")
+        alt = BR_feasible_ignoring_isolation(pat, board)
+        if alt:
+            st.markdown("##### Override: assign a bed outside the rules")
+            st.caption("This is a human override and needs a written reason. It is logged with your role." + (" The patient needs isolation and these beds are not isolation-capable." if pat["isolation_required"] else ""))
+            oc = st.selectbox("Bed", alt, key=f"bq_alt_{pick}")
+            who = st.radio("Decided by", list(ROLES), format_func=ROLES.get, horizontal=True, key="bq_who")
+            reason = st.text_input("Reason (required)", key=f"bq_altreason_{pick}")
+            if st.button("Override and assign", type="primary", disabled=not reason.strip(), key="bq_altgo"):
+                E.record_decision(item["patient_id"], [], oc, who, reason, {})
+                s["assignments"][oc] = {"patient_id": item["patient_id"], "role": ROLES[who], "time": f"{tdec + pd.Timedelta(minutes=5):%H:%M}", "level": pat["requested_level_of_care"],
+                                        "overridden": True, "assign_time": tdec + pd.Timedelta(minutes=5)}
+                if item["item"]:
+                    item["item"]["status"], item["item"]["bed"] = "assigned", oc
+                s["bq_ver"] = s.get("bq_ver", 0) + 1
+                st.rerun()
         return
     bed_cards(mt, {})
     ids = [r["bed_id"] for r in mt["ranked"]]
@@ -592,7 +634,9 @@ def simulate_beds():
         res = E.record_decision(item["patient_id"], mt["ranked"], chosen, who, reason, blockers)
         s["assignments"][chosen] = {"patient_id": item["patient_id"], "role": ROLES[who], "time": f"{tdec + pd.Timedelta(minutes=5):%H:%M}", "level": pat["requested_level_of_care"],
                                     "overridden": res["overridden"], "assign_time": tdec + pd.Timedelta(minutes=5)}
-        item["status"], item["bed"] = "assigned", chosen
+        if item["item"]:
+            item["item"]["status"], item["item"]["bed"] = "assigned", chosen
+        s["bq_ver"] = s.get("bq_ver", 0) + 1          # clears the row selection
         st.rerun()
 
 
@@ -720,22 +764,81 @@ def prep_world():
     return {"pri": pri, "man": man, "blk": blk}
 
 
+def demo_only_ids():
+    """The scripted Demo Scenarios patients (A, B, C). They are replayed on that tab only and never claim beds on the board or in the queue."""
+    return frozenset(v["visit_id"] for v in prep_world()["man"].get("scripts", {}).values())
+
+
 @st.cache_resource(show_spinner="Replaying the day...")
 def _day_states(sims_json, assigns_json):
     PW = prep_world()
     sims = _json.loads(sims_json)
     assigns = _json.loads(assigns_json)
-    return EP.replay_day(DAY_TIMES, journey_data(), W["beds"], PW["blk"], PW["pri"], PW["man"].get("forecast_at_now"), now=E.NOW, sims=sims, assigns=assigns)
+    return EP.replay_day(DAY_TIMES, journey_data(), W["beds"], PW["blk"], PW["pri"], PW["man"].get("forecast_at_now"), now=E.NOW, sims=sims, assigns=assigns, exclude=demo_only_ids())
 
 
 def sims_in_session():
-    return [x["sim"] for x in st.session_state.get("queue", []) if x.get("sim")]
+    out = [x["sim"] for x in st.session_state.get("queue", []) if x.get("sim")]
+    pv = st.session_state.get("provisional")
+    if pv and pv.get("sim"):
+        out.append(pv["sim"])        # a patient read by the AI but not yet admitted: shows on the board as a likely patient
+    return out
 
 
 def day_states():
     """Every 15 minutes from 08:00: the bed board and early-prep plan, including the patients the user added and the beds they assigned."""
     return _day_states(_json.dumps(sims_in_session(), default=str, sort_keys=True),
                        _json.dumps(st.session_state.get("assignments", {}), default=str, sort_keys=True))
+
+
+def bed_of(patient_id):
+    """(bed, assignment) once a patient has a bed anywhere in the day: assigned by the bed manager, or taken automatically when the held bed freed up."""
+    return next(((b, a) for b, a in day_states()[-1]["assigns"].items() if a["patient_id"] == patient_id), None)
+
+
+def BR_feasible_ignoring_isolation(pat, board):
+    """Beds that could serve the patient's level of care and are free or freeing soon, whether or not they meet the isolation need (for a human override)."""
+    import bed_rules as BR
+    return BR.feasible_beds({**pat, "isolation_required": False}, board)
+
+
+def twin_story():
+    """The two clinically identical demo patients (one commercial, one uninsured): same score, same rule, and what bed supply gave each of them."""
+    tw = prep_world()["man"].get("payer_twins") or {}
+    ents = {e["patient_id"]: e for e in queue_entries()}
+    rows = []
+    for payer in ("commercial", "uninsured"):
+        e = ents.get(tw.get(payer))
+        if not e:
+            return None
+        got = bed_of(e["patient_id"])
+        rdy = W["beds"].set_index("bed_id")["expected_ready_time"].get(got[0]) if got else None
+        rows.append({"Patient": e["patient_id"], "Payer": payer, "Admit score": f"{e['p']:.0%}", "Doctor decides": f"{e['decision']:%H:%M}",
+                     "Bed taken": (f"{got[0]} at {got[1]['time']}" if got else "not assigned yet"),
+                     "That bed was ready at": (f"{pd.Timestamp(rdy):%H:%M}" if rdy is not None and pd.notna(rdy) else ""),
+                     "Minutes from decision to bed": (round((pd.Timestamp(got[1]["assign_time"]) - e["decision"]).total_seconds() / 60) if got else None)})
+    return rows
+
+
+def queue_entries():
+    """Everyone in the bed queue as one list: the admitted demo patients (V-...) and the patients the user submitted (SIM-...). Each can be matched by the bed manager."""
+    J = journey_data()
+    v, sn = J["visits"], J["snap"]
+    out = []
+    for vid, r in v[(v["disposition"] == "admit") & v["disposition_time"].notna() & ~v.index.isin(list(demo_only_ids()))].iterrows():
+        sv = sn[(sn["visit_id"] == vid) & (sn["snapshot_time"] <= r["disposition_time"])]
+        out.append({"patient_id": vid, "p": float(sv.iloc[-1]["p"]) if len(sv) else 0.0, "arrival": pd.Timestamp(r["arrival_time"]), "decision": pd.Timestamp(r["disposition_time"]),
+                    "case": {"complaint_category": r["complaint_category"], "esi": int(r["esi"]), "requested_level_of_care": r["requested_level_of_care"],
+                             "isolation_required": bool(r["isolation_required"]), "admit_decided": True}, "item": None})
+    for x in st.session_state.get("queue", []):
+        out.append({"patient_id": x["patient_id"], "p": x["p"], "arrival": pd.Timestamp(x["sim"]["arrival"]), "decision": pd.Timestamp(x["sim"]["decision_time"]),
+                    "case": x["case"], "item": x})
+    out.sort(key=lambda e: e["decision"])
+    return out
+
+
+def _how(a):
+    return "early prep" if "Early prep" in str(a.get("role", "")) else str(a.get("role", "")).lower()
 
 
 def state_at(t):
@@ -747,16 +850,16 @@ def free_board(t, visit_id):
     """The board at t for matching one patient: bed state at t, beds already assigned in the simulation taken, and beds early prep holds for OTHER patients left out.
     Also returns the hold early prep placed for this patient, if any."""
     res = state_at(t)
-    b, _ = EP.board_with_assigns(W["beds"], t, st.session_state.get("assignments", {}))
+    b, _ = EP.board_with_assigns(W["beds"], t, res["assigns"])          # simulation assignments and demo-patient assignments alike
     others = {h["bed_id"] for h in res["holds"] if h["visit_id"] != visit_id}
     mine = next((h for h in res["holds"] if h["visit_id"] == visit_id), None)
     return b[~b["bed_id"].isin(others)], mine, len(others)
 
 
 UNIT_ORDER = [("icu", "ICU"), ("cardiac", "Cardiac (telemetry)"), ("pulmonary", "Pulmonary"), ("neuro", "Neuro"), ("general", "General (med-surg)")]
-STATUS_RGB = {"ready": (134, 205, 160), "cleaning": (147, 197, 232), "discharge": (246, 205, 130), "occupied": (226, 229, 235), "blocked": (176, 184, 198), "assigned": (190, 178, 245)}
-HOLD_STYLE = {"soft": ("#8B5CF6", "dashed"), "hard": ("#7C3AED", "solid"), "decided": ("#3B82F6", "solid"), "pooled": ("#0D9488", "dotted")}
-HOLD_NAME = {"soft": "Soft hold (40-60%)", "hard": "Expedited hold (60%+)", "decided": "Held for a decided patient", "pooled": "Pooled hold (no patient yet)"}
+STATUS_RGB = {"ready": (134, 205, 160), "cleaning": (147, 197, 232), "discharge": (246, 190, 110), "occupied": (236, 140, 140), "blocked": (150, 156, 168)}
+HOLD_STYLE = {"soft": ("#7C3AED", "dotted"), "hard": ("#7C3AED", "dashed"), "decided": ("#7C3AED", "solid")}      # pooled holds (no patient yet) are not drawn
+HOLD_NAME = {"soft": "Soft hold (40-60%)", "hard": "Expedited hold (60%+)", "decided": "Admitted: held for an approved patient", "pooled": "Pooled hold (no patient yet)"}
 
 
 def _bed_state(b):
@@ -792,22 +895,22 @@ BED_CSS = """<style>
 
 def _bed_box(b, tnow, hold, blk, tasks, assign=None, col=0):
     esc = html.escape
-    key = "assigned" if assign else _bed_state(b)
+    key = _bed_state(b)          # a bed assigned in the simulation is already "occupied" on this board, same as one from the data
     mins = None
     if key in ("cleaning", "discharge") and pd.notna(b["expected_ready_time"]):
         mins = max(0, round((b["expected_ready_time"] - tnow).total_seconds() / 60))
-    if assign:
-        hold = None
-    alpha = 1.0 if key in ("ready", "occupied", "blocked", "assigned") else max(0.5, 1.0 - min(mins or 240, 240) / 240 * 0.5)
+    assign = None
+    alpha = 1.0
+    named = hold if hold and hold["visit_id"] else None      # who the bed is held for (also an approved patient waiting for the bed to finish cleaning)
     r, g, bl = STATUS_RGB[key]
     border = "1px solid rgba(0,0,0,.10)"
     tag = ""
     if assign:
         border = "2px solid #6D5BD0"
         tag = f"<div style='font-size:10px;color:#4C3FA8;font-weight:600'>{esc(assign['patient_id'])}</div>"
-    if hold:
+    if hold and hold["kind"] in HOLD_STYLE:      # soft, expedited and admitted holds get an outline; a pooled hold has no patient yet
         c_, sty = HOLD_STYLE[hold["kind"]]
-        border = f"2px {sty} {c_}"
+        border = f"{3 if hold['kind'] == 'decided' else 2}px {sty} {c_}"
 
     ready_t = f"{b['expected_ready_time']:%H:%M}" if pd.notna(b["expected_ready_time"]) else "unknown"
     sub = dict(UNIT_ORDER).get(b["unit"], b["unit"]) + (f" · {b['bed_type'].replace('_', ' ')}" if b["bed_type"].replace("_", " ") not in dict(UNIT_ORDER).get(b["unit"], "").lower() and b["bed_type"] not in (b["unit"], "med_surg") else "") + (" · isolation-capable" if bool(b["isolation_capable"]) else "")
@@ -861,21 +964,20 @@ def _bed_box(b, tnow, hold, blk, tasks, assign=None, col=0):
     pos = " rt" if col % 10 >= 7 else (" mid" if col % 10 >= 4 else "")
     card = card.replace("<div class='bc'>", f"<div class='bc{pos}'>", 1)
     bid = b["bed_id"]
-    label_md = f"**{bid}**  \n{label}" + (f"  \n{assign['patient_id']}" if assign else "")
+    label_md = f"**{bid}**  \n{label}" + (f"  \n→ {named['visit_id']}" if named else "")
     css = (f".st-key-bed_{bid} button, .st-key-bed_{bid} button:hover, .st-key-bed_{bid} button:focus{{background:rgba({r},{g},{bl},{alpha:.2f}) !important;border:{border} !important}}")
     return label_md, css, card
 
 
 def _legend():
     chips = []
-    for name, key in (("Ready now", "ready"), ("Being cleaned", "cleaning"), ("Occupied, discharge pending", "discharge"), ("Occupied", "occupied"), ("Blocked", "blocked"), ("Assigned in simulation", "assigned")):
+    for name, key in (("Ready now", "ready"), ("Being cleaned", "cleaning"), ("Occupied, discharge pending", "discharge"), ("Occupied", "occupied"), ("Blocked", "blocked")):
         r, g, b = STATUS_RGB[key]
         chips.append(f"<span style='display:inline-flex;align-items:center;margin-right:14px;font-size:13px'><span style='width:16px;height:16px;border-radius:4px;"
                      f"background:rgba({r},{g},{b},1);border:1px solid rgba(0,0,0,.10);margin-right:5px'></span>{name}</span>")
-    chips.append("<span style='font-size:13px;margin-right:14px'>Lighter tint = longer until ready</span>")
     for k, (col, sty) in HOLD_STYLE.items():
         chips.append(f"<span style='display:inline-flex;align-items:center;margin-right:14px;font-size:13px'><span style='width:16px;height:16px;border-radius:4px;"
-                     f"border:2px {sty} {col};margin-right:5px;box-sizing:border-box'></span>{HOLD_NAME[k]}</span>")
+                     f"border:{3 if k == 'decided' else 2}px {sty} {col};margin-right:5px;box-sizing:border-box'></span>{HOLD_NAME[k]}</span>")
     st.markdown("<div style='line-height:2'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
 
 
@@ -887,8 +989,8 @@ def _pick_bed(bed_id):
 def board():
     PW = prep_world()
     st.caption("Every inpatient bed at a glance, from 8:00 AM. Move the time to watch beds free up and early-prep holds appear. Hover a bed to see who is in it, what its discharge or cleaning is waiting on, and who is coming next. "
-               "Click a bed to open it under Inspect a bed, below the board. Purple and teal outlines are beds the system prepares ahead for patients who are likely to be admitted. "
-               "Patients you add under Simulate Patient Scenario join this day at the time you choose, and beds you assign show in indigo with the patient's code.")
+               "Click a bed to open it under Inspect a bed, below the board. A purple outline means the bed is being prepared ahead for the patient whose code is printed on it (dotted = soft hold, dashed = expedited hold, thick solid = the patient is admitted and takes the bed the moment it is ready). "
+               "Patients you add under Simulate Patient Scenario join this day at the time you choose, and beds you assign are shown as occupied, like any other bed.")
     states = day_states()
     idx = st.select_slider("Time of day", options=list(range(len(DAY_TIMES))), value=0, format_func=lambda i: f"{DAY_TIMES[i]:%H:%M}", key="prep_t")
     res, tnow = states[idx], DAY_TIMES[idx]
@@ -897,18 +999,18 @@ def board():
     tasks_by_hold = {}
     for k in res["tasks"]:
         tasks_by_hold.setdefault(k["hold_id"], []).append(k)
-    assigned = {bed: a for bed, a in st.session_state.get("assignments", {}).items() if pd.Timestamp(a["assign_time"]) <= tnow}
+    assigned = {bed: a for bed, a in res["assigns"].items() if pd.Timestamp(a["assign_time"]) <= tnow}
     for x in st.session_state.get("queue", []):
         sm = x.get("sim")
         if not sm:
             continue
         dec, arr = pd.Timestamp(sm["decision_time"]), pd.Timestamp(sm["arrival"])
         line = f"**{x['patient_id']}** arrives {arr:%H:%M}, doctor decides {dec:%H:%M}"
-        asg = next((bd for bd, a in st.session_state.get("assignments", {}).items() if a["patient_id"] == x["patient_id"]), None)
+        asg = next((bd for bd, a in res["assigns"].items() if a["patient_id"] == x["patient_id"]), None)
         hd = next((h for h in res["holds"] if h["visit_id"] == x["patient_id"]), None)
         if tnow < arr:
             line += ". Not in the ED yet."
-        elif asg and pd.Timestamp(st.session_state["assignments"][asg]["assign_time"]) <= tnow:
+        elif asg and pd.Timestamp(res["assigns"][asg]["assign_time"]) <= tnow:
             line += f". Assigned to {asg}."
         elif hd:
             line += f". Bed {hd['bed_id']} held since {pd.Timestamp(hd['created_time']):%H:%M} ({hd['kind']} hold)."
@@ -916,19 +1018,15 @@ def board():
             line += ". No bed held yet."
         st.caption(line)
     named = [h for h in res["holds"] if h["visit_id"] and h["kind"] in ("soft", "hard")]
-    c = st.columns(5)
+    c = st.columns(3)
     c[0].metric("Ready beds", int((beds["status"] == "ready").sum()))
-    c[1].metric("Held for decided patients", sum(h["kind"] == "decided" for h in res["holds"]))
-    c[2].metric("Prepared ahead (likely patients)", len(named))
-    c[3].metric("Pooled holds", len(res["pool"]))
-    c[4].metric("Tasks started early", len(res["tasks"]))
+    c[1].metric("Prepared ahead (likely patients)", len(named))
+    c[2].metric("Tasks started early", len(res["tasks"]))
     bn = res["banner"]
     if bn.get("forecast_used"):
         msg = (f"Next {bn['horizon_hours']} hours: about {bn['forecast_admits']:.1f} new admits expected. After beds already claimed, "
                + ", ".join(f"{k.replace('_', '-')} short by {max(0, v['shortfall']):.1f}" for k, v in bn["levels"].items()) + ".")
-        if bn["shortfall_beds"] >= C.PREP_POOL_MIN_SHORTFALL:
-            st.warning(msg)
-        else:
+        if bn["shortfall_beds"] < C.PREP_POOL_MIN_SHORTFALL:      # the yellow shortfall warning is intentionally not shown
             st.success(msg)
     _legend()
     st.markdown(BED_CSS, unsafe_allow_html=True)
@@ -952,8 +1050,10 @@ def board():
     # ---- inspect one bed (hover alternative, and where the task chain lives)
     st.markdown("### Inspect a bed")
     held = [h["bed_id"] for h in res["holds"]]
-    pick = st.selectbox("Bed", held + [b for b in beds["bed_id"] if b not in held], key="board_inspect",
-                        format_func=lambda x: x + ("  (held)" if x in held else ""))
+    all_ids = list(beds["bed_id"])                       # the same options at every time of day, so the widget keeps a valid value as holds come and go
+    if st.session_state.get("board_inspect") not in all_ids:
+        st.session_state["board_inspect"] = all_ids[0]   # also clears a stale value such as a label saved by an older version of the app
+    pick = st.selectbox("Bed", all_ids, key="board_inspect", format_func=lambda x: x + ("  (held)" if x in held else ""))
     b = beds.set_index("bed_id").loc[pick]
     h = hold_by_bed.get(pick)
     key = _bed_state(b)
@@ -962,7 +1062,7 @@ def board():
                + (" (discharge pending)" if key == "discharge" else ""))
     if pick in assigned:
         a_ = assigned[pick]
-        st.write(f"Assigned in the simulation to **{a_['patient_id']}** ({a_['level'].replace('_', '-')}) by {a_['role']} at {a_['time']}" + (" (override)" if a_["overridden"] else "") + ".")
+        st.write(f"Assigned to **{a_['patient_id']}** ({a_['level'].replace('_', '-')}) by {a_['role']} at {a_['time']}" + (" (override)" if a_["overridden"] else "") + ".")
     occ = PW["blk"].get(pick)
     if occ:
         st.write("Open blockers: " + (", ".join(f"**{f['blocker_type'].replace('_', ' ')}** ({f['owner_role'].replace('_', ' ')})" for f in occ["findings"]) or "none in the latest note"))
@@ -1099,6 +1199,13 @@ def page_fairness():
     if tw:
         st.write(f"Demo twins (identical clinically; {tw['commercial']} commercial vs {tw['uninsured']} uninsured) scored "
                  f"**{tw['scores'][0]:.4f}** and **{tw['scores'][1]:.4f}**. Payer cannot change a score because it is not an input.")
+    ts = twin_story()
+    if ts:
+        st.markdown("#### What each twin got")
+        st.dataframe(pd.DataFrame(ts), hide_index=True, width="stretch")
+        st.write("**Same score, same rule, different bed supply.** Both twins went through the identical matching rule. The first to be decided took the best bed that was free; "
+                 "the second was decided five minutes later, when that bed was gone, so the next ICU bed (ICU-05, ready at 12:00) set the wait. Swap the payers and the same gap appears for whoever decides second. "
+                 "Payer is not an input to the score or to the matching rule.")
     st.info("Not measured yet: override rates by payer. Needs real decisions in the audit trail; the demo has too few to test.")
     st.download_button("Download fairness_report.csv", df.to_csv(index=False), "fairness_report.csv")
 
