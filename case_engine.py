@@ -16,6 +16,7 @@ import pandas as pd
 import admit_model as AM
 import bed_rules as BR
 import config as C
+import early_prep as EP
 import extract_blockers as EB
 import llm_client as L
 import schema as S
@@ -172,3 +173,57 @@ def record_decision(case_id, ranked, chosen_bed, role, override_reason, blockers
         _append(f"{data_dir}/tasks.csv", tasks, "tasks")
     _append(f"{data_dir}/audit_log.csv", audit, "audit_log")
     return {"matches": len(matches), "tasks": len(tasks), "audit": len(audit), "overridden": overridden}
+
+
+# ------------------------------------------------------------------ early-prep loop (lever 2: one-tap confirm writes holds, tasks and audit rows)
+def prep_blockers(beds, notes, use_llm=True):
+    """Open blockers for EVERY discharge-pending bed (the loop needs them all, not just the matcher's top 3)."""
+    dp = beds[(beds["status"] == "occupied") & beds["discharge_pending"].astype(bool)]
+    return annotate_blockers([{"bed_id": b} for b in dp["bed_id"]], beds, notes, use_llm=use_llm)
+
+
+def prep_task_rows(res, now):
+    """The plan's task chains as rows of the tasks table. Status comes from the dependency chain at `now`."""
+    state = EP.task_state(res["tasks"], pd.Timestamp(now))
+    rows = []
+    for k in res["tasks"]:
+        if not k["occupant_visit_id"]:
+            continue
+        deps = k["depends_on_key"] or []
+        rows.append({"task_id": f"T-{k['task_key']}", "visit_id": k["occupant_visit_id"], "created_time": k["created_time"], "task_type": k["task_type"],
+                     "owner_role": k["owner_role"], "due_time": k["due_time"], "status": state[k["task_key"]], "source": "early_prep",
+                     "bed_id": k["bed_id"], "hold_id": k["hold_id"], "depends_on": ",".join(f"T-{d}" for d in deps) or None,
+                     "start_by_time": k["start_by_time"], "duration_min": k["duration_min"], "priority": k["priority"],
+                     "critical": bool(k["critical"]), "completed_time": k["due_time"] if state[k["task_key"]] == "done" else pd.NaT})
+    return pd.DataFrame(rows)
+
+
+def prep_hold_rows(res):
+    cols = S.cols("bed_holds")
+    rows = []
+    for h in res["holds"]:
+        r = {c: h.get(c) for c in cols}
+        if r["status"] == "active" and h["kind"] == "decided":
+            r["status"] = "converted"
+        rows.append(r)
+    return pd.DataFrame(rows, columns=cols)
+
+
+def record_prep(res, role, now=NOW, data_dir=C.DATA_DIR):
+    """A named person confirms the prompts. Writes bed_holds, tasks and audit_log. Nothing here changes a bed or discharges anyone."""
+    ts = pd.Timestamp(now)
+    holds, tasks = prep_hold_rows(res), prep_task_rows(res, ts)
+    pid = f"P-{pd.Timestamp.now().strftime('%H%M%S%f')}"
+    audit = [{"log_id": f"L-{pid}-{i}", "log_time": e["time"], "actor": "ai", "action": e["action"], "entity_type": "hold" if e["bed_id"] else "case",
+              "entity_id": e["visit_id"] or e["bed_id"] or "pool", "detail": str({"bed": e["bed_id"], "note": e["detail"]})}
+             for i, e in enumerate(res["events"])]
+    audit += [{"log_id": f"L-{pid}-r{i}", "log_time": ts, "actor": "ai", "action": "bed_request_drafted" if not r["sent_early"] else "bed_request_ready_to_send",
+               "entity_type": "case", "entity_id": r["visit_id"], "detail": str({"level": r["level"], "isolation": r["isolation"], "bed": r["bed_id"]})}
+              for i, r in enumerate(res["bed_requests"])]
+    audit.append({"log_id": f"L-{pid}-c", "log_time": ts, "actor": role, "action": "confirmed_prompts", "entity_type": "plan", "entity_id": pid,
+                  "detail": str({"holds": len(holds), "tasks": len(tasks)})})
+    _append(f"{data_dir}/bed_holds.csv", holds, "bed_holds")
+    if len(tasks):
+        _append(f"{data_dir}/tasks.csv", tasks, "tasks")
+    _append(f"{data_dir}/audit_log.csv", pd.DataFrame(audit), "audit_log")
+    return {"holds": len(holds), "tasks": len(tasks), "audit": len(audit)}

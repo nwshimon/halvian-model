@@ -46,7 +46,7 @@ if os.environ.get("APP_PASSWORD"):
 EXAMPLES = {
     "A: looks mild, then isn't": "35-49 year old with abdominal pain, ESI 3, arrived 94 minutes ago. Reassessed 7 minutes ago: HR 122, SpO2 92.5%, "
                                  "BP 96/60, RR 25, temp 38.9 C. Lab panel resulted abnormal. CT ordered, result pending. IV medication given. "
-                                 "Doctor has decided to admit to telemetry.",
+                                 "Doctor has decided to admit to a med-surg bed.",
     "B: needs an isolation bed": "65-74 year old with shortness of breath, ESI 2, here 150 minutes. HR 104, SpO2 91%, BP 142/88, RR 26, temp 38.2 C. "
                                  "ECG normal, chest x-ray abnormal, lab panel abnormal. Admit decision made: telemetry bed, isolation required for suspected influenza.",
     "C: chest pain, admit": "50-64 year old with chest pain, ESI 2, 110 minutes since arrival. HR 96, SpO2 95%, BP 158/92, RR 20, temp 36.9 C. "
@@ -156,7 +156,7 @@ with st.sidebar:
     st.divider()
     st.caption("The AI proposes. A named person decides. Every override needs a written reason.")
 
-tab_case, tab_journey, tab_board, tab_test, tab_audit, tab_fair = st.tabs(["Case demo", "Patient journey", "Bed board", "Extractor test", "Audit trail", "Fairness"])
+tab_case, tab_journey, tab_prep, tab_board, tab_test, tab_audit, tab_fair = st.tabs(["Case demo", "Patient journey", "Prepare ahead", "Bed board", "Extractor test", "Audit trail", "Fairness"])
 
 # ------------------------------------------------------------------ tab 1: case demo
 with tab_case:
@@ -321,7 +321,7 @@ with tab_test:
 with tab_audit:
     st.subheader("Audit trail")
     import os
-    for name in ("audit_log", "bed_matches", "tasks"):
+    for name in ("audit_log", "bed_matches", "bed_holds", "tasks"):
         p = f"{C.DATA_DIR}/{name}.csv"
         st.markdown(f"**{name}**")
         if os.path.exists(p):
@@ -467,3 +467,161 @@ with tab_journey:
              ", ".join(f"{k.replace('_', '-')} {v:.1f}" for k, v in sp.items()))
     st.caption("This total also moves when other patients arrive or get decided, so not every change comes from the selected patient. "
                "At the admit decision the score becomes a fact and the bed request opens: continue in the Case demo or Bed board tabs.")
+
+
+
+# ------------------------------------------------------------------ tab: prepare ahead (the early-prep loop)
+import json as _json2
+import early_prep as EP
+
+
+@st.cache_resource(show_spinner="Reading the discharge notes for every bed that is waiting on a discharge...")
+def prep_world():
+    pri = EP.Priors()
+    man = _json2.load(open(f"{C.DATA_DIR}/demo_manifest.json"))
+    try:
+        blk = E.prep_blockers(W["beds"], W["notes"], use_llm=True)
+    except Exception:
+        blk = E.prep_blockers(W["beds"], W["notes"], use_llm=False)
+    times = ["10:30", "10:46", "11:30", "12:05", "12:28"]
+    stamps = [pd.Timestamp(f"{C.DEMO_DATE} {t}") for t in times]
+    states = EP.replay(stamps, journey_data(), W["beds"], blk, pri, man.get("forecast_at_now"), now=E.NOW)
+    return {"pri": pri, "man": man, "blk": blk, "times": times, "stamps": stamps, "states": states}
+
+
+def _who(v):
+    return TITLES.get(v, v) if v else "pooled (no named patient yet)"
+
+
+with tab_prep:
+    st.subheader("Prepare ahead: act on the admit forecast before the doctor decides")
+    st.caption("Today the bed request starts after the admit decision. Here the same trained score starts the work earlier, in steps by how sure we are: "
+               f"{C.PREP_SOFT_THRESHOLD:.0%} soft (reversible), {C.PREP_EXPEDITE_THRESHOLD:.0%} expedite (send the bed request, start discharge tasks), "
+               f"{C.PREP_URGENT_THRESHOLD:.0%} urgent. Nobody is assumed to work faster: the saving comes from starting existing work sooner. "
+               "The system proposes; a named person confirms. It never discharges anyone.")
+    PW = prep_world()
+    idx = st.select_slider("Moment in the demo day", options=list(range(len(PW["times"]))), value=0,
+                           format_func=lambda i: PW["times"][i] + ("  (demo 'now')" if i == 0 else ""), key="prep_t")
+    res, tnow = PW["states"][idx], PW["stamps"][idx]
+    holds = res["holds"]
+    named = [h for h in holds if h["visit_id"] and h["kind"] in ("soft", "hard")]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Soft holds (40-60%)", sum(h["kind"] == "soft" for h in named))
+    c2.metric("Expedited (60%+)", sum(h["kind"] == "hard" for h in named))
+    c3.metric("Pooled holds (no patient yet)", len(res["pool"]))
+    c4.metric("Tasks created", len(res["tasks"]))
+
+    bn = res["banner"]
+    if bn.get("forecast_used"):
+        tot_short = bn["shortfall_beds"]
+        txt = ", ".join(f"{k.replace('_', '-')}: demand {v['expected_demand']:.1f} vs {v['beds_ready_within_horizon']} bed(s) free to claim (shortfall {max(0, v['shortfall']):.1f})"
+                        for k, v in bn["levels"].items())
+        (st.warning if tot_short >= C.PREP_POOL_MIN_SHORTFALL else st.success)(
+            f"Next {bn['horizon_hours']} hours: the forecaster expects about {bn['forecast_admits']:.1f} new admits. After the beds already claimed above, {txt}. "
+            + ("A pooled hold starts the discharge chain on the best bed for a level that is short." if len(res["pool"]) else "No discharge chain can finish in time for the short levels."))
+    else:
+        st.caption("The demand forecast is only recomputed at the demo 'now'; pooled holds made then are carried forward here.")
+
+    st.markdown("**Holds and why**")
+    ratio = []
+    for h in holds:
+        if h["kind"] == "decided":
+            what = "Decided: bed needed now"
+        elif h["kind"] == "pooled":
+            what = "Pooled (for the next likely " + h["level_assumed"].replace("_", "-") + " patient)"
+        else:
+            what = "Soft hold" if h["kind"] == "soft" else ("Urgent" if h.get("action_tier") == "urgent" else "Expedite")
+        margin = None if h["kind"] in ("decided", "pooled") else round((h["needed_by_time"] - h["realistic_ready_time"]).total_seconds() / 60)
+        ratio.append({"Patient": _who(h["visit_id"]), "Action": what, "Admit score": None if h["p_latest"] is None else round(h["p_latest"], 2),
+                      "Bed assumed": f"{h['level_assumed'].replace('_', '-')} ({h['level_confidence']:.0%})", "Bed": h["bed_id"],
+                      "Supply": {1: "ready now", 2: "being cleaned", 3: "discharge-pending"}[h["tier"]],
+                      "Realistic ready": f"{h['realistic_ready_time']:%H:%M}", "Needed by": "" if h["kind"] == "pooled" else f"{h['needed_by_time']:%H:%M}",
+                      "Margin (min)": margin, "Misses earliest plan": "yes" if h["critical"] else ""})
+    if ratio:
+        st.dataframe(pd.DataFrame(ratio), hide_index=True, width="stretch")
+        st.caption("Needed by = when the doctor will EARLIEST decide (25th percentile for this many pending results). 'Realistic ready' uses the published task durations, "
+                   "not the unit's stated ready time. 'Misses earliest plan' still means the bed is ready sooner than starting only after the decision would give.")
+    else:
+        st.info("Nobody is flagged yet at this moment.")
+    for e in res["events"]:
+        if e["action"] == "no_feasible_bed":
+            st.caption(f"No bed can be prepared for {_who(e['visit_id'])}: {e['detail']}.")
+
+    st.markdown("**Early bed requests** (ready to send; a person confirms)")
+    if res["bed_requests"]:
+        st.dataframe(pd.DataFrame([{"Patient": _who(r["visit_id"]), "Bed type": r["level"].replace("_", "-"), "Isolation": "yes" if r["isolation"] else "no",
+                                    "Preferred unit": r["preferred_unit"] or "", "For bed": r["bed_id"],
+                                    "Status": "send now (60%+)" if r["sent_early"] else "drafted only (40-60%)"} for r in res["bed_requests"]]),
+                     hide_index=True, width="stretch")
+    else:
+        st.caption("No requests yet.")
+
+    st.markdown("**Task chains on discharge-pending beds**")
+    chains = [h for h in holds if h["tier"] == 3]
+    if not chains:
+        st.caption("No discharge chain is needed at this moment (a bed that is ready or being cleaned will do).")
+    else:
+        sel = st.selectbox("Bed", [h["hold_id"] for h in chains],
+                           format_func=lambda hid: next(f"{h['bed_id']} for {_who(h['visit_id'])}" for h in chains if h["hold_id"] == hid), key="prep_chain")
+        mine = [k for k in res["tasks"] if k["hold_id"] == sel]
+        stt = EP.task_state(mine, tnow, st.session_state.get("prep_done", {}).get(sel, []))
+        h = next(x for x in chains if x["hold_id"] == sel)
+        occ = PW["blk"].get(h["bed_id"], {})
+        if occ.get("note_text"):
+            with st.expander(f"Latest note on {h['bed_id']} ({occ['note_time']:%H:%M})"):
+                st.write(occ["note_text"])
+        ROLE_LABEL = {"inpatient_physician": "Inpatient physician", "environmental_services": "Environmental services (cleaning)", "inpatient_nurse": "Inpatient nurse",
+                      "case_management": "Case management", "pharmacy": "Pharmacy", "PT/OT": "PT/OT", "social_work": "Social work"}
+        order = {k["task_key"]: i for i, k in enumerate(mine)}
+        st.dataframe(pd.DataFrame([{"Task": k["task_type"].replace("_", " "), "Owner": ROLE_LABEL.get(k["owner_role"], k["owner_role"]),
+                                    "Start by": f"{k['start_by_time']:%H:%M}", "Due": f"{k['due_time']:%H:%M}", "Minutes": int(k["duration_min"]),
+                                    "Status": stt[k["task_key"]], "Priority": k["priority"]} for k in mine]), hide_index=True, width="stretch")
+        ready_t = max(k["due_time"] for k in mine if k["task_type"] == "bed_cleaning")
+        st.write(f"Bed ready (end of cleaning): **{ready_t:%H:%M}**.")
+        open_tasks = [k for k in mine if stt[k["task_key"]] in ("open", "in_progress")]
+        if open_tasks:
+            tk = st.selectbox("Mark a task done now (to see the chain move)", [k["task_key"] for k in open_tasks],
+                              format_func=lambda x: next(k["task_type"].replace("_", " ") for k in open_tasks if k["task_key"] == x), key="prep_done_pick")
+            if st.button("Mark done at this moment", key="prep_done_btn"):
+                moved, new_ready = EP.mark_done(mine, tk, tnow)
+                st.success(f"Done at {tnow:%H:%M}. The tasks after it re-time, and the bed is now expected ready at {new_ready:%H:%M} (was {ready_t:%H:%M}). "
+                           "In use, each person's tap would do this and cleaning staff would be paged automatically.")
+
+    # patient A, the simple case
+    a_id = PW["man"]["scripts"]["A"]["visit_id"]
+    with st.expander("Patient A, the simple case: what the loop does and what it could save"):
+        hist = []
+        for tt, s_ in zip(PW["times"], PW["states"]):
+            hh = next((x for x in s_["holds"] if x["visit_id"] == a_id), None)
+            pp = next((c["p"] for c in s_["claimants"] if c["visit_id"] == a_id), None)
+            hist.append({"Time": tt, "Admit score": None if pp is None else round(pp, 2),
+                         "What the system does": ("nothing yet (below 40%)" if hh is None else
+                                                  f"{'Decided: hold converts, bed ready now' if hh['kind'] == 'decided' else 'Hold on ' + hh['bed_id'] + ', early bed request ready to send'}")})
+        st.dataframe(pd.DataFrame(hist), hide_index=True, width="stretch")
+        ha = next((x for s_ in PW["states"] for x in s_["holds"] if x["visit_id"] == a_id and x["kind"] == "hard"), None)
+        if ha is not None:
+            est = EP.replay_estimate(journey_data()["visits"].loc[a_id], ha)
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Boarding as recorded", f"{est['recorded_boarding_h']:.1f} h")
+            m2.metric("Boarding with the loop", f"{est['boarding_with_loop_h']:.1f} h")
+            m3.metric("Bed sat held before the decision", f"{est['bed_idle_min_before_decision']} min")
+            st.caption("One patient, best case: it assumes the held bed is really free. This is a replay estimate, not a measurement, and the cost of acting early "
+                       "is the bed-minutes held before the decision. Across all admits the scenario model below applies.")
+
+    with st.expander("How much time could this save across all admits? (scenarios, not measurements)"):
+        sc = C.SCENARIO_MEDIAN_BOARDING_HOURS
+        st.dataframe(pd.DataFrame([
+            {"Scenario": "Today (brief)", "Median boarding (h)": sc["baseline"], "Change": "-"},
+            {"Scenario": "Conservative: half the prompts acted on", "Median boarding (h)": sc["conservative"], "Change": f"{(sc['conservative'] / sc['baseline'] - 1):.0%}"},
+            {"Scenario": "Base case (headline)", "Median boarding (h)": sc["base"], "Change": f"{(sc['base'] / sc['baseline'] - 1):.0%}"},
+            {"Scenario": "Optimistic: every prompt acted on", "Median boarding (h)": sc["optimistic"], "Change": f"{(sc['optimistic'] / sc['baseline'] - 1):.0%}"}]),
+            hide_index=True, width="stretch")
+        st.caption("Method: each test-split admit's simulated boarding time, minus a head start only where the model had flagged the patient at 60% before the decision, "
+                   "capped at the stage the work acts on. Published task durations are used as they are. The national typical range is 2 to 2.5 hours; "
+                   "only the optimistic case reaches it. See early-prep-realistic-durations.md.")
+
+    st.markdown("**Confirm**")
+    who = st.selectbox("Confirming as", list(ROLES), format_func=lambda r: ROLES[r], key="prep_role")
+    if st.button("Confirm these prompts (writes holds, tasks and an audit record)", type="primary", key="prep_confirm"):
+        done = E.record_prep(res, who, now=tnow)
+        st.success(f"Recorded {done['holds']} holds, {done['tasks']} tasks and {done['audit']} audit rows. See the Audit trail tab. No bed was changed and nobody was discharged.")
