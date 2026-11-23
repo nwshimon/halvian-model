@@ -1,0 +1,556 @@
+{
+  "demo_date": "2026-11-04",
+  "demo_now": "2026-11-04 10:30:00",
+  "patients": [
+    {
+      "visit_id": "V-900001",
+      "archetype": "boarding_requested",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900002",
+      "archetype": "boarding_requested",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900003",
+      "archetype": "boarding_requested",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900004",
+      "archetype": "awaiting_discharge",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900005",
+      "archetype": "awaiting_discharge",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900006",
+      "archetype": "boarding_requested",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900007",
+      "archetype": "boarding_decided",
+      "stage_at_now": "boarding_decided"
+    },
+    {
+      "visit_id": "V-900008",
+      "archetype": "boarding_decided",
+      "stage_at_now": "boarding_decided"
+    },
+    {
+      "visit_id": "V-900009",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900010",
+      "archetype": "scripted_B",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900011",
+      "archetype": "awaiting_discharge",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900012",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900013",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900014",
+      "archetype": "awaiting_discharge",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900015",
+      "archetype": "scripted_C",
+      "stage_at_now": "boarding_requested"
+    },
+    {
+      "visit_id": "V-900016",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900017",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900018",
+      "archetype": "scripted_A",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900019",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900020",
+      "archetype": "in_workup_twin",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900021",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900022",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    },
+    {
+      "visit_id": "V-900023",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900024",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    },
+    {
+      "visit_id": "V-900025",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900026",
+      "archetype": "in_workup",
+      "stage_at_now": "in_workup"
+    },
+    {
+      "visit_id": "V-900027",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    },
+    {
+      "visit_id": "V-900028",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    },
+    {
+      "visit_id": "V-900029",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    },
+    {
+      "visit_id": "V-900030",
+      "archetype": "waiting_for_provider",
+      "stage_at_now": "waiting_for_provider"
+    }
+  ],
+  "scripts": {
+    "A": {
+      "visit_id": "V-900018",
+      "title": "Looks mild, then isn't"
+    },
+    "B": {
+      "visit_id": "V-900010",
+      "title": "Bed request stalls"
+    },
+    "C": {
+      "visit_id": "V-900015",
+      "title": "Charge nurse overrides"
+    }
+  },
+  "script_A_score_arc": [
+    {
+      "time": "2026-11-04 09:24:00",
+      "trigger": "triage",
+      "p": 0.143,
+      "category": "unlikely"
+    },
+    {
+      "time": "2026-11-04 10:08:00",
+      "trigger": "order",
+      "p": 0.161,
+      "category": "unlikely"
+    },
+    {
+      "time": "2026-11-04 10:10:00",
+      "trigger": "order",
+      "p": 0.152,
+      "category": "unlikely"
+    },
+    {
+      "time": "2026-11-04 10:14:00",
+      "trigger": "order",
+      "p": 0.212,
+      "category": "possible"
+    },
+    {
+      "time": "2026-11-04 10:46:00",
+      "trigger": "result",
+      "p": 0.765,
+      "category": "likely"
+    },
+    {
+      "time": "2026-11-04 12:05:00",
+      "trigger": "result",
+      "p": 0.786,
+      "category": "likely"
+    }
+  ],
+  "payer_twins": {
+    "commercial": "V-900019",
+    "uninsured": "V-900020",
+    "scores": [
+      0.4501,
+      0.4501
+    ]
+  },
+  "provisional_recommendations": {
+    "V-900001": [
+      {
+        "bed_id": "GEN-07",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "CARD-11",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ],
+    "V-900002": [
+      {
+        "bed_id": "CARD-11",
+        "score": 6.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care",
+          "preferred_unit"
+        ]
+      },
+      {
+        "bed_id": "CARD-03",
+        "score": 5.5,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care",
+          "preferred_unit",
+          "isolation_bed_wasted"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ],
+    "V-900003": [
+      {
+        "bed_id": "GEN-07",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "CARD-11",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ],
+    "V-900006": [
+      {
+        "bed_id": "ICU-03",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "ICU-04",
+        "score": 1.25,
+        "reason_codes": [
+          "minutes_until_ready",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "ICU-05",
+        "score": -0.7,
+        "reason_codes": [
+          "minutes_until_ready",
+          "exact_level_of_care"
+        ]
+      }
+    ],
+    "V-900007": [
+      {
+        "bed_id": "CARD-11",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "CARD-03",
+        "score": 4.5,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care",
+          "isolation_bed_wasted"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ],
+    "V-900008": [
+      {
+        "bed_id": "GEN-07",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "CARD-11",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ],
+    "V-900010": [
+      {
+        "bed_id": "CARD-03",
+        "score": 5.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care"
+        ]
+      },
+      {
+        "bed_id": "CARD-09",
+        "score": 0.2,
+        "reason_codes": [
+          "minutes_until_ready",
+          "exact_level_of_care"
+        ]
+      }
+    ],
+    "V-900015": [
+      {
+        "bed_id": "CARD-11",
+        "score": 6.0,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care",
+          "preferred_unit"
+        ]
+      },
+      {
+        "bed_id": "CARD-03",
+        "score": 5.5,
+        "reason_codes": [
+          "ready_now",
+          "exact_level_of_care",
+          "preferred_unit",
+          "isolation_bed_wasted"
+        ]
+      },
+      {
+        "bed_id": "ICU-03",
+        "score": 3.0,
+        "reason_codes": [
+          "ready_now"
+        ]
+      }
+    ]
+  },
+  "suggested_override": {
+    "patient": "V-900015",
+    "ai_top": "CARD-11",
+    "override_to": "CARD-05",
+    "reason_text": "Holding CARD-11 (beside the nurses' station) for an unstable patient arriving from the ward."
+  },
+  "timeline_after_now": {
+    "V-900018": [
+      {
+        "time": "2026-11-04 10:39:00",
+        "event": "reassessment",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 10:46:00",
+        "event": "result",
+        "order": "lab_panel",
+        "abnormal": true
+      },
+      {
+        "time": "2026-11-04 11:42:00",
+        "event": "reassessment",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:05:00",
+        "event": "result",
+        "order": "CT",
+        "abnormal": true
+      },
+      {
+        "time": "2026-11-04 12:20:00",
+        "event": "reassessment",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:28:00",
+        "event": "admit_decision",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 13:20:00",
+        "event": "bed_requested",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 13:30:00",
+        "event": "bed_matched",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 15:25:00",
+        "event": "bed_ready",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 15:35:00",
+        "event": "report_given",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 15:45:00",
+        "event": "transported",
+        "order": null,
+        "abnormal": null
+      }
+    ],
+    "V-900010": [
+      {
+        "time": "2026-11-04 10:35:00",
+        "event": "reassessment",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 10:52:00",
+        "event": "bed_matched",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:45:00",
+        "event": "bed_ready",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:55:00",
+        "event": "report_given",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 13:05:00",
+        "event": "transported",
+        "order": null,
+        "abnormal": null
+      }
+    ],
+    "V-900015": [
+      {
+        "time": "2026-11-04 10:41:00",
+        "event": "bed_matched",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:10:00",
+        "event": "bed_ready",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:20:00",
+        "event": "report_given",
+        "order": null,
+        "abnormal": null
+      },
+      {
+        "time": "2026-11-04 12:30:00",
+        "event": "transported",
+        "order": null,
+        "abnormal": null
+      }
+    ]
+  },
+  "forecast_at_now": {
+    "2h": 5.31,
+    "4h": 9.08,
+    "8h": 16.56
+  },
+  "checks_passed": true
+}

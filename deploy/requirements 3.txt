@@ -1,0 +1,8 @@
+# Halvian ED Boarding Command Center: data + model code
+# Tested on Python 3.13 with the versions below. Newer minor versions should work; if something breaks, pin to these.
+numpy==2.5.3
+pandas==3.0.5
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+streamlit>=1.40        # the demo app (app.py). Tested on 1.67.0

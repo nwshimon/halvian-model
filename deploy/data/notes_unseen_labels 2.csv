@@ -1,0 +1,12 @@
+note_id,blocker_type,evidence_phrase,owner_role
+U-01,pt_evaluation,no one from therapy has come to assess her mobility yet,PT/OT
+U-02,transport,the van company hasn't confirmed a pickup time,case_management
+U-03,home_oxygen_equipment,the supplier hasn't dropped off the concentrator at her apartment,case_management
+U-04,medications,the pharmacy is still waiting on the prior auth from the plan,pharmacy
+U-05,family,nobody has been named to supervise her at home after discharge,social_work
+U-06,paperwork,needs the face-to-face attestation signed by the physician,case_management
+U-07,placement,neither has gotten back to us,case_management
+U-08,pt_evaluation,OT hasn't signed off on her kitchen safety,PT/OT
+U-08,transport,there's no wheelchair van booked for tomorrow,case_management
+U-12,placement,bed not avail til fri,case_management
+U-12,paperwork,auth from insurance not back,case_management

@@ -41,15 +41,17 @@ def score_bed(patient, bed, now):
 
 
 def rank_beds(patient, beds, now, top_n=C.MATCH_TOP_N):
-    """Top-N feasible beds, best first. Ties break on sooner-ready, then bed_id, so results are repeatable."""
+    """Top-N feasible beds, best first. Ties break on sooner-ready, then the bed that has been ready longest, then bed_id, so results are repeatable."""
     rows = []
     for _, bed in beds.iterrows():
         if passes_hard_filters(patient, bed):
             s, codes = score_bed(patient, bed, now)
+            since = bed.get("status_updated_time")
             rows.append({"bed_id": bed["bed_id"], "score": round(s, 3), "reason_codes": codes,
-                         "_ready": _minutes_until_ready(bed, now)})
-    rows.sort(key=lambda r: (-r["score"], r["_ready"], r["bed_id"]))
-    return [{k: v for k, v in r.items() if k != "_ready"} for r in rows[:top_n]]
+                         "_ready": _minutes_until_ready(bed, now),
+                         "_since": since.value if (bed["status"] == "ready" and pd.notna(since)) else 0})
+    rows.sort(key=lambda r: (-r["score"], r["_ready"], r["_since"], r["bed_id"]))
+    return [{k: v for k, v in r.items() if k not in ("_ready", "_since")} for r in rows[:top_n]]
 
 
 def feasible_beds(patient, beds):

@@ -420,3 +420,94 @@ def replay_estimate(v, hold):
             "recorded_boarding_h": (left - dec).total_seconds() / 3600, "boarding_with_loop_h": (left_loop - dec).total_seconds() / 3600,
             "saved_min": round(((left - dec) - (left_loop - dec)).total_seconds() / 60),
             "bed_idle_min_before_decision": round(max(0.0, (dec - ready_loop).total_seconds() / 60))}
+
+
+# ------------------------------------------------------------------ the whole demo day (added 2026-11-23)
+def snapshot_time():
+    return pd.Timestamp(C.DEMO_DATE) + pd.Timedelta(hours=int(C.DEMO_NOW_TIME[:2]), minutes=int(C.DEMO_NOW_TIME[3:]))
+
+
+def day_board(beds, t):
+    """The bed table at any time t of the demo day. The data holds ONE snapshot (the demo clock). From it:
+      after the snapshot: a bed whose expected ready time has passed is ready (cleaning beds and discharge-pending beds alike). No new discharges are invented.
+      before it: run the same facts backwards. A bed that became ready after t was being cleaned (or, if that was more than an hour later, was occupied with
+      a discharge pending). A bed whose cleaning started after t was still occupied with a discharge pending. Occupied-no-discharge and blocked beds stay as they are."""
+    t, snap = pd.Timestamp(t), snapshot_time()
+    b = beds.copy()
+    pend = (b["status"] == "occupied") & b["discharge_pending"].astype(bool)
+    if t >= snap:
+        done = (b["status"].isin(["cleaning"]) | pend) & b["expected_ready_time"].notna() & (b["expected_ready_time"] <= t)
+        b.loc[done, "status"] = "ready"
+        b.loc[done, "discharge_pending"] = False
+        b.loc[done, "current_visit_id"] = np.nan
+        return b
+    su = b["status_updated_time"]
+    late_ready = (b["status"] == "ready") & su.notna() & (su > t)
+    far = late_ready & ((su - t) > pd.Timedelta(minutes=60))
+    near = late_ready & ~far
+    still_dirty = (b["status"] == "cleaning") & su.notna() & (su > t)
+    for m, new in ((far, "pending"), (near, "cleaning"), (still_dirty, "pending")):
+        if not m.any():
+            continue
+        if new == "cleaning":
+            b.loc[m, "status"] = "cleaning"
+            b.loc[m, "discharge_pending"] = False
+        else:
+            b.loc[m, "status"] = "occupied"
+            b.loc[m, "discharge_pending"] = True
+        b.loc[m & b["expected_ready_time"].isna(), "expected_ready_time"] = su[m & b["expected_ready_time"].isna()]
+    return b
+
+
+def sim_claimants(t, sims, pri, assigned_ids=frozenset()):
+    """Patients a user added in the simulation, as claimants at time t. Each has arrival-based score steps and a decision time."""
+    t = pd.Timestamp(t)
+    out = []
+    for s in sims:
+        if s["patient_id"] in assigned_ids:
+            continue
+        steps = [x for x in s["steps"] if pd.Timestamp(x["time"]) <= t]
+        if not steps:
+            continue
+        lv_pref = C.PREFERRED_UNIT_BY_COMPLAINT.get(s["complaint"])
+        if t >= pd.Timestamp(s["decision_time"]):
+            out.append({"visit_id": s["patient_id"], "kind": "decided", "p": 1.0, "level": s["level"], "level_confidence": 1.0, "isolation": bool(s["isolation"]),
+                        "preferred_unit": lv_pref, "decision_time": pd.Timestamp(s["decision_time"]), "needed_by": t, "pending": 0, "complaint": s["complaint"]})
+            continue
+        last = steps[-1]
+        lv, conf, _ = pri.level_guess(s["complaint"], s["esi"])
+        out.append({"visit_id": s["patient_id"], "kind": "ed", "p": float(last["p"]), "level": lv, "level_confidence": float(conf),
+                    "isolation": pri.isolation_guess(s["complaint"], s["esi"]), "preferred_unit": lv_pref, "decision_time": None,
+                    "needed_by": t + pd.Timedelta(minutes=pri.minutes_to_decision(last["pending"])), "pending": int(last["pending"]),
+                    "complaint": s["complaint"], "score_time": pd.Timestamp(last["time"])})
+    return out
+
+
+def board_with_assigns(beds, t, assigns):
+    """day_board plus every bed the user assigned at or before t, shown as occupied by that patient."""
+    b = day_board(beds, t)
+    gone = set()
+    for bed, a in (assigns or {}).items():
+        if pd.Timestamp(a["assign_time"]) <= pd.Timestamp(t):
+            m = b["bed_id"] == bed
+            b.loc[m, "status"] = "occupied"
+            b.loc[m, "discharge_pending"] = False
+            b.loc[m, "current_visit_id"] = a["patient_id"]
+            gone.add(a["patient_id"])
+    return b, gone
+
+
+def replay_day(times, J, beds, blockers, pri, forecast_at_now=None, now=None, sims=(), assigns=None):
+    """plan() at every time of the day, carrying holds forward. Demo patients plus any patients the user added. A bed the user assigned is occupied from
+    the assignment time on, and its patient stops claiming."""
+    holds, out = None, []
+    for t in times:
+        t = pd.Timestamp(t)
+        b, gone = board_with_assigns(beds, t, assigns)
+        cl = claimants_at(t, J, pri) + sim_claimants(t, sims, pri, gone)
+        fc = forecast_at_now if (now is not None and t == pd.Timestamp(now)) else None
+        res = plan(t, b, cl, blockers, pri, prior_holds=holds, forecast=fc)
+        res["claimants"], res["board"] = cl, b
+        holds = res["holds"]
+        out.append(res)
+    return out

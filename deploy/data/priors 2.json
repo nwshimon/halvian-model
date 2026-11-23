@@ -1,0 +1,597 @@
+{
+ "built_from": "train split, admitted visits",
+ "level_priors": [
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 1,
+   "n": 100,
+   "med_surg": 0.35,
+   "telemetry": 0.11,
+   "icu": 0.54,
+   "fallback": false
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 2,
+   "n": 472,
+   "med_surg": 0.7034,
+   "telemetry": 0.1102,
+   "icu": 0.1864,
+   "fallback": false
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 3,
+   "n": 339,
+   "med_surg": 0.8702,
+   "telemetry": 0.1121,
+   "icu": 0.0177,
+   "fallback": false
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 4,
+   "n": 8,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 5,
+   "n": 2,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 1,
+   "n": 95,
+   "med_surg": 0.0737,
+   "telemetry": 0.2421,
+   "icu": 0.6842,
+   "fallback": false
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 2,
+   "n": 460,
+   "med_surg": 0.2522,
+   "telemetry": 0.5804,
+   "icu": 0.1674,
+   "fallback": false
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 3,
+   "n": 380,
+   "med_surg": 0.3263,
+   "telemetry": 0.6684,
+   "icu": 0.0053,
+   "fallback": false
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 4,
+   "n": 11,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 1,
+   "n": 196,
+   "med_surg": 0.4235,
+   "telemetry": 0.0969,
+   "icu": 0.4796,
+   "fallback": false
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 2,
+   "n": 807,
+   "med_surg": 0.7906,
+   "telemetry": 0.114,
+   "icu": 0.0954,
+   "fallback": false
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 3,
+   "n": 405,
+   "med_surg": 0.8864,
+   "telemetry": 0.1062,
+   "icu": 0.0074,
+   "fallback": false
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 4,
+   "n": 11,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 1,
+   "n": 136,
+   "med_surg": 0.2426,
+   "telemetry": 0.0294,
+   "icu": 0.7279,
+   "fallback": false
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 2,
+   "n": 534,
+   "med_surg": 0.6573,
+   "telemetry": 0.1292,
+   "icu": 0.2135,
+   "fallback": false
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 3,
+   "n": 334,
+   "med_surg": 0.8443,
+   "telemetry": 0.1467,
+   "icu": 0.009,
+   "fallback": false
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 4,
+   "n": 6,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 1,
+   "n": 72,
+   "med_surg": 0.3611,
+   "telemetry": 0.0278,
+   "icu": 0.6111,
+   "fallback": false
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 2,
+   "n": 315,
+   "med_surg": 0.6254,
+   "telemetry": 0.1048,
+   "icu": 0.2698,
+   "fallback": false
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 3,
+   "n": 137,
+   "med_surg": 0.8759,
+   "telemetry": 0.1095,
+   "icu": 0.0146,
+   "fallback": false
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 4,
+   "n": 7,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 1,
+   "n": 60,
+   "med_surg": 0.1167,
+   "telemetry": 0.3333,
+   "icu": 0.55,
+   "fallback": false
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 2,
+   "n": 290,
+   "med_surg": 0.2103,
+   "telemetry": 0.5621,
+   "icu": 0.2276,
+   "fallback": false
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 3,
+   "n": 213,
+   "med_surg": 0.3286,
+   "telemetry": 0.6714,
+   "icu": 0.0,
+   "fallback": false
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 4,
+   "n": 9,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "other",
+   "esi": 1,
+   "n": 77,
+   "med_surg": 0.3896,
+   "telemetry": 0.039,
+   "icu": 0.5714,
+   "fallback": false
+  },
+  {
+   "complaint_category": "other",
+   "esi": 2,
+   "n": 460,
+   "med_surg": 0.7304,
+   "telemetry": 0.1065,
+   "icu": 0.163,
+   "fallback": false
+  },
+  {
+   "complaint_category": "other",
+   "esi": 3,
+   "n": 295,
+   "med_surg": 0.8305,
+   "telemetry": 0.1661,
+   "icu": 0.0034,
+   "fallback": false
+  },
+  {
+   "complaint_category": "other",
+   "esi": 4,
+   "n": 6,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 1,
+   "n": 39,
+   "med_surg": 0.359,
+   "telemetry": 0.0256,
+   "icu": 0.6154,
+   "fallback": false
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 2,
+   "n": 191,
+   "med_surg": 0.6702,
+   "telemetry": 0.1152,
+   "icu": 0.2147,
+   "fallback": false
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 3,
+   "n": 118,
+   "med_surg": 0.9237,
+   "telemetry": 0.0763,
+   "icu": 0.0,
+   "fallback": false
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 4,
+   "n": 6,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 1,
+   "n": 126,
+   "med_surg": 0.1587,
+   "telemetry": 0.381,
+   "icu": 0.4603,
+   "fallback": false
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 2,
+   "n": 952,
+   "med_surg": 0.2605,
+   "telemetry": 0.6303,
+   "icu": 0.1092,
+   "fallback": false
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 3,
+   "n": 536,
+   "med_surg": 0.334,
+   "telemetry": 0.6642,
+   "icu": 0.0019,
+   "fallback": false
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 4,
+   "n": 20,
+   "med_surg": 0.5472,
+   "telemetry": 0.2996,
+   "icu": 0.1532,
+   "fallback": true
+  }
+ ],
+ "decision_time_priors": [
+  {
+   "pending_results": 0,
+   "n": 17661,
+   "p25": 29.5,
+   "p50": 81.6,
+   "p75": 132.8
+  },
+  {
+   "pending_results": 1,
+   "n": 14706,
+   "p25": 55.6,
+   "p50": 78.7,
+   "p75": 100.1
+  },
+  {
+   "pending_results": 2,
+   "n": 8141,
+   "p25": 67.9,
+   "p50": 84.2,
+   "p75": 102.3
+  },
+  {
+   "pending_results": 3,
+   "n": 3176,
+   "p25": 75.6,
+   "p50": 91.4,
+   "p75": 108.4
+  }
+ ],
+ "isolation_priors": [
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 1,
+   "n": 100,
+   "share": 0.01
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 2,
+   "n": 472,
+   "share": 0.0254
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 3,
+   "n": 339,
+   "share": 0.0118
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 4,
+   "n": 8,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "abdominal_pain",
+   "esi": 5,
+   "n": 2,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 1,
+   "n": 95,
+   "share": 0.0211
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 2,
+   "n": 460,
+   "share": 0.0109
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 3,
+   "n": 380,
+   "share": 0.0132
+  },
+  {
+   "complaint_category": "chest_pain",
+   "esi": 4,
+   "n": 11,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 1,
+   "n": 196,
+   "share": 0.3265
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 2,
+   "n": 807,
+   "share": 0.3185
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 3,
+   "n": 405,
+   "share": 0.3383
+  },
+  {
+   "complaint_category": "infection_fever",
+   "esi": 4,
+   "n": 11,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 1,
+   "n": 136,
+   "share": 0.0147
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 2,
+   "n": 534,
+   "share": 0.0206
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 3,
+   "n": 334,
+   "share": 0.024
+  },
+  {
+   "complaint_category": "injury_trauma",
+   "esi": 4,
+   "n": 6,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 1,
+   "n": 72,
+   "share": 0.0278
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 2,
+   "n": 315,
+   "share": 0.0127
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 3,
+   "n": 137,
+   "share": 0.0292
+  },
+  {
+   "complaint_category": "minor_other",
+   "esi": 4,
+   "n": 7,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 1,
+   "n": 60,
+   "share": 0.0167
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 2,
+   "n": 290,
+   "share": 0.0172
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 3,
+   "n": 213,
+   "share": 0.0141
+  },
+  {
+   "complaint_category": "neuro",
+   "esi": 4,
+   "n": 9,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "other",
+   "esi": 1,
+   "n": 77,
+   "share": 0.039
+  },
+  {
+   "complaint_category": "other",
+   "esi": 2,
+   "n": 460,
+   "share": 0.013
+  },
+  {
+   "complaint_category": "other",
+   "esi": 3,
+   "n": 295,
+   "share": 0.0305
+  },
+  {
+   "complaint_category": "other",
+   "esi": 4,
+   "n": 6,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 1,
+   "n": 39,
+   "share": 0.0513
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 2,
+   "n": 191,
+   "share": 0.0105
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 3,
+   "n": 118,
+   "share": 0.0085
+  },
+  {
+   "complaint_category": "psychiatric",
+   "esi": 4,
+   "n": 6,
+   "share": 0.0862
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 1,
+   "n": 126,
+   "share": 0.1032
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 2,
+   "n": 952,
+   "share": 0.0935
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 3,
+   "n": 536,
+   "share": 0.097
+  },
+  {
+   "complaint_category": "shortness_of_breath",
+   "esi": 4,
+   "n": 20,
+   "share": 0.0862
+  }
+ ],
+ "overall_level_share": {
+  "med_surg": 0.5472,
+  "telemetry": 0.2996,
+  "icu": 0.1532
+ }
+}

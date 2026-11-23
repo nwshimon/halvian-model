@@ -47,7 +47,7 @@ def sentence(ev, snap_row):
     if t == "order":
         return f"The doctor orders: {name}."
     if t == "result":
-        return f"Result returns: {name} is " + ("ABNORMAL." if ev["result_abnormal"] in (True, "True") else "normal.")
+        return f"Result returns: {name} is " + ("CONCERNING." if ev["result_abnormal"] in (True, "True") else "reassuring.")
     if t == "reassessment":
         return "Nurse rechecks the vitals. (They feed the next score.)"
     if t == "admit_decision":

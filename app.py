@@ -21,6 +21,17 @@ import llm_client as L
 
 st.set_page_config(page_title="Boarding Command Center", layout="wide")
 
+HEAD_CSS = """<style>
+/* one heading scale for every page: H1 page title, H2 demo time, H3 section/side, H4 step/panel/unit, H5 small label */
+[data-testid="stMain"] h1{font-size:2rem !important;font-weight:700;padding:.25rem 0 .5rem}
+[data-testid="stMain"] h2{font-size:1.6rem !important;font-weight:700;padding:.75rem 0 .25rem}
+[data-testid="stMain"] h3{font-size:1.3rem !important;font-weight:700;padding:.6rem 0 .25rem}
+[data-testid="stMain"] h4{font-size:1.1rem !important;font-weight:650;padding:.5rem 0 .2rem}
+[data-testid="stMain"] h5{font-size:1rem !important;font-weight:650;padding:.4rem 0 .15rem}
+[data-testid="stSidebar"] h2{font-size:1.25rem !important;font-weight:700}
+</style>"""
+st.markdown(HEAD_CSS, unsafe_allow_html=True)
+
 # --- hosted deployment: copy keys from Streamlit secrets into the environment (nothing is read if there are none) ---
 import os
 for _k in ("GROQ_API_KEY", "GEMINI_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "LLM_CACHE_ONLY", "APP_PASSWORD"):
@@ -68,10 +79,15 @@ W = world()
 
 
 # ------------------------------------------------------------------ state
+RESULT_STATES = ["pending", "reassuring", "concerning"]
+
+
 def _orders_frame(orders):
-    """Orders table with fixed column types (an empty table with untyped columns crashes st.data_editor)."""
-    df = pd.DataFrame(orders or [], columns=["name", "resulted", "abnormal"])
-    return df.astype({"name": str, "resulted": bool, "abnormal": bool})
+    """Orders table: order, result received (pending / reassuring / concerning) and free-text notes. Fixed column types so an empty table cannot crash st.data_editor."""
+    rows = [{"name": o["name"], "result": ("pending" if not o.get("resulted") else ("concerning" if o.get("abnormal") else "reassuring")), "notes": o.get("notes", "")}
+            for o in (orders or [])]
+    df = pd.DataFrame(rows, columns=["name", "result", "notes"])
+    return df.astype({"name": str, "result": str, "notes": str})
 
 
 def _o(name, resulted=False, abnormal=False):
@@ -97,8 +113,11 @@ EXAMPLE_FORMS = {
 def _apply_example(name):
     f = dict(EXAMPLE_FORMS[name])
     orders = f.pop("orders")
+    f.pop("f_admit", None)
+    f["f_iso_choice"] = "Yes" if f.pop("f_iso", False) else "No"
     s = st.session_state
     s.update(f)
+    s["f_approve"] = False
     s["f_text"] = EXAMPLES[name]
     s["f_orders"] = _orders_frame(orders)
     s["orders_ver"] = s.get("orders_ver", 0) + 1
@@ -142,10 +161,9 @@ def do_parse():
     if c["minutes_since_arrival"] is not None:
         s["f_arr"] = float(c["minutes_since_arrival"])
     s["f_last"] = float(c["minutes_since_last_reassessment"]) if c["minutes_since_last_reassessment"] is not None else max(0.0, s["f_arr"] - 8)
-    s["f_admit"] = c["admit_decided"]
     if c["requested_level_of_care"]:
         s["f_level"] = c["requested_level_of_care"]
-    s["f_iso"] = c["isolation_required"]
+    s["f_iso_choice"] = "Yes" if c["isolation_required"] else "No"
     s["f_orders"] = _orders_frame(c["orders"])
     s["orders_ver"] += 1
     s["decision"] = None
@@ -153,12 +171,12 @@ def do_parse():
 
 def current_case():
     s = st.session_state
-    orders = [{"name": r["name"], "resulted": bool(r["resulted"]), "abnormal": bool(r["abnormal"]) and bool(r["resulted"])}
+    orders = [{"name": r["name"], "resulted": r["result"] in ("reassuring", "concerning"), "abnormal": r["result"] == "concerning", "notes": r.get("notes", "")}
               for _, r in s["orders_table"].iterrows() if r["name"] in I.ORDERS]
     return {"age_band": s["f_age"], "complaint_category": s["f_complaint"], "esi": s["f_esi"],
             "vitals": {"hr": s["f_hr"], "spo2": s["f_spo2"], "sbp": s["f_sbp"], "rr": s["f_rr"], "temp_c": s["f_temp"]},
             "orders": orders, "minutes_since_arrival": s["f_arr"], "minutes_since_last_reassessment": s["f_last"],
-            "admit_decided": s["f_admit"], "requested_level_of_care": s["f_level"] if s["f_admit"] else None, "isolation_required": s["f_iso"]}
+            "admit_decided": False, "requested_level_of_care": None, "isolation_required": s["f_iso_choice"] == "Yes"}
 
 
 def highlight(text, phrases):
@@ -213,11 +231,11 @@ def step_title(n, title, hint=None):
 def show_vitals(vit):
     flags = E.abnormal_flags(vit)
     cols = st.columns(5)
-    for col, (k, label, fmt) in zip(cols, (("hr", "Heart rate (worst)", "{:.0f}"), ("spo2", "SpO2 % (lowest)", "{:.1f}"), ("sbp", "Systolic BP (lowest)", "{:.0f}"),
-                                           ("rr", "Resp. rate (worst)", "{:.0f}"), ("temp_c", "Temp °C (highest)", "{:.1f}"))):
+    for col, (k, label, fmt) in zip(cols, (("hr", "HR (worst)", "{:.0f}"), ("spo2", "SpO2 % (low)", "{:.1f}"), ("sbp", "Sys. BP (low)", "{:.0f}"),
+                                           ("rr", "RR (worst)", "{:.0f}"), ("temp_c", "Temp °C (high)", "{:.1f}"))):
         col.metric(label, fmt.format(vit[k]))
         if flags.get(k):
-            col.caption(":red[⚠ outside the normal range]")
+            col.caption(":red[⚠ abnormal]")
 
 
 def sc_from_snapshot(JD, row, idx):
@@ -264,7 +282,7 @@ def bed_cards(mt, blockers):
     cols = st.columns(len(mt["ranked"]))
     for col, r in zip(cols, mt["ranked"]):
         with col.container(border=True):
-            st.markdown(f"**#{r['rank']} {r['bed_id']}**" + ("  ·  best fit" if r["rank"] == 1 else ""))
+            st.markdown(f"##### #{r['rank']} {r['bed_id']}" + ("  ·  best fit" if r["rank"] == 1 else ""))
             when = "ready now" if r["status"] == "ready" else f"ready in ~{r['minutes_until_ready']} min"
             st.caption(f"{r['unit']} unit · {r['bed_type']}{' · isolation-capable' if r['isolation_capable'] else ''}")
             st.write(f"{r['status'].capitalize()} · {when}" + (" (waiting on a discharge)" if r["discharge_pending"] else ""))
@@ -289,7 +307,7 @@ TIER_TEXT = {"soft": "soft tier: hold a ready or cleaning bed (reversible) and d
              "urgent": "urgent tier: as expedite, with the tasks marked urgent and escalated."}
 
 
-def early_prep_preview(case, p, pending, board, now):
+def early_prep_preview(case, p, pending, board, now, hold=None):
     """Step 5 before a doctor decides: what the early-prep loop would do for this one patient (no competing patients; the Bed Board tab has those)."""
     tier = EP.tier_name(p)
     if tier is None:
@@ -301,11 +319,14 @@ def early_prep_preview(case, p, pending, board, now):
     iso = pri.isolation_guess(case["complaint_category"], case["esi"])
     needed = pri.minutes_to_decision(pending)
     guess = {**case, "requested_level_of_care": lv, "isolation_required": iso}
-    mt = E.match_beds(guess, board, now=now, top_n=1)
+    mt = E.match_beds(guess, board, now=now, top_n=1) if not hold else {"ranked": []}
     st.success(f"No decision yet, but the score ({p:.0%}) is in the {TIER_TEXT[tier]}")
     st.write(f"Assumed bed type: **{lv.replace('_', '-')}** ({share:.0%} of similar admits)" + (", **isolation**" if iso else "")
              + f". Earliest likely decision: about **{needed:.0f} min** from now (25th percentile, with {int(pending)} result(s) pending).")
-    if mt["ranked"]:
+    if hold:
+        ready = pd.Timestamp(hold["realistic_ready_time"])
+        st.write(f"Bed it holds: **{hold['bed_id']}**, held since {pd.Timestamp(hold['created_time']):%H:%M} ({hold['kind']} hold), realistic ready time {ready:%H:%M}. A person confirms before anything is sent.")
+    elif mt["ranked"]:
         r = mt["ranked"][0]
         when = "ready now" if r["status"] == "ready" else f"ready in ~{r['minutes_until_ready']} min"
         st.write(f"Bed it would hold: **{r['bed_id']}** ({r['unit']}, {r['status']}, {when}). A person confirms before anything is sent.")
@@ -313,10 +334,10 @@ def early_prep_preview(case, p, pending, board, now):
         st.warning("No suitable bed can be prepared in time.")
 
 
-def matching_step(case, p, pending, board, now, record_key=None, case_id=None):
+def matching_step(case, p, pending, board, now, record_key=None, case_id=None, hold=None):
     """Step 5. Decided -> ranked beds (and, for the typed case, the confirm/override form). Not decided -> early-prep preview."""
     if not case["admit_decided"]:
-        early_prep_preview(case, p, pending, board, now)
+        early_prep_preview(case, p, pending, board, now, hold)
         return
     mt = E.match_beds(case, board, now=now)
     pat = mt["patient"]
@@ -330,7 +351,7 @@ def matching_step(case, p, pending, board, now, record_key=None, case_id=None):
     bed_cards(mt, blockers)
     if record_key is None:
         return
-    st.markdown("**A named person confirms or overrides**")
+    st.markdown("##### A named person confirms or overrides")
     dcs = st.session_state.get("decision")
     if dcs:
         st.success(f"{'Override' if dcs['overridden'] else 'Confirmed'} by {dcs['role']} at {dcs['time']}: {dcs['bed']}. "
@@ -348,72 +369,228 @@ def matching_step(case, p, pending, board, now, record_key=None, case_id=None):
         st.rerun()
 
 
-# ------------------------------------------------------------------ tab 1: Simulate Scenario
-def simulate():
-    st.caption("Type or pick a case and follow it left to right through the data model, one step at a time. "
-               "Assume the note is written in a standard form that contains everything the model needs; the AI only copies it into the form.")
-    # ---- step 1
-    step_title(1, "The typed case and what the AI filled in")
-    c1, c2 = st.columns([3, 1])
-    with c2:
-        st.selectbox("Example cases", list(EXAMPLES), key="example_pick", on_change=load_example)
-    with c1:
-        st.text_area("Case (as a clinician would write it, including the last assessed vitals)", key="f_text", height=120)
-    st.button("Read the case with AI", type="primary", on_click=do_parse)
-    info = st.session_state["parse_info"]
-    if info and "error" in info:
-        st.error(f"The AI reader is not available ({info['error']}). Fill in the form by hand; every step after this still works.")
-    elif info:
-        st.caption(f"Read by {info['model']} ({info['source']}). Check the form and correct anything that is wrong.")
-        for w_ in info["warnings"]:
-            st.warning(w_)
-    st.markdown("**Form the AI filled** (edit anything)")
-    a, b, c = st.columns(3)
-    a.selectbox("Age band", C.AGE_BANDS, key="f_age")
-    b.selectbox("Chief complaint", I.COMPLAINTS, key="f_complaint")
-    c.selectbox("ESI triage level", [1, 2, 3, 4, 5], key="f_esi")
-    v = st.columns(5)
-    v[0].number_input("Heart rate (worst)", 20.0, 250.0, key="f_hr")
-    v[1].number_input("SpO2 % (lowest)", 50.0, 100.0, key="f_spo2")
-    v[2].number_input("Systolic BP (lowest)", 40.0, 260.0, key="f_sbp")
-    v[3].number_input("Resp. rate (worst)", 4.0, 60.0, key="f_rr")
-    v[4].number_input("Temp °C (highest)", 30.0, 43.0, key="f_temp")
-    m = st.columns(2)
-    m[0].number_input("Minutes since arrival", 0.0, 4320.0, key="f_arr")
-    m[1].number_input("Minutes since last vitals check", 0.0, 4320.0, key="f_last")
-    if info and "evidence" in info and info["evidence"]:
-        st.caption("Where the AI found each value: " + "; ".join(f"{k}: “{p}”" for k, p in info["evidence"].items()))
 
-    # ---- step 2
-    step_title(2, "Orders so far and their results", "Add an order, then tick “Result back” and “Abnormal” as results arrive. The score in step 3 updates.")
-    edited = st.data_editor(st.session_state["f_orders"], key=f"orders_editor_{st.session_state['orders_ver']}", num_rows="dynamic", hide_index=True, width="stretch",
-                            column_config={"name": st.column_config.SelectboxColumn("Order", options=I.ORDERS, required=True),
-                                           "resulted": st.column_config.CheckboxColumn("Result back"),
-                                           "abnormal": st.column_config.CheckboxColumn("Abnormal")})
-    st.session_state["orders_table"] = edited
-    case, assumed = E.complete_case(current_case())
+LIVE_CSS = """<style>
+div[data-testid="stColumn"]:has(.st-key-live_sim), div[data-testid="column"]:has(.st-key-live_sim),
+div[data-testid="stColumn"]:has(.st-key-live_sim_frozen), div[data-testid="column"]:has(.st-key-live_sim_frozen)
+{position: sticky; top: 3.6rem; align-self: flex-start; max-height: calc(100vh - 4.5rem); overflow-y: auto;}
+.st-key-live_sim_frozen {opacity: 0.45; filter: grayscale(1);}
+</style>"""
 
-    # ---- step 3
-    step_title(3, "Admit score and how it was calculated")
-    sc = E.score_case(case, W)
-    show_score(sc, assumed)
+TEMPLATE_TEXT = ("[age band] year old with [complaint], ESI [1-5], [N] minutes since arrival. Reassessed [N] minutes ago: HR [..], SpO2 [..]%, BP [sys]/[dia], "
+                 "RR [..], temp [..] C. [Order] ordered, result [pending / reassuring / concerning]. [Next order] ... Doctor has decided to admit to a "
+                 "[med-surg / telemetry / ICU] bed[, isolation required].")
 
-    # ---- step 4
-    step_title(4, "The doctor's admit decision", "Tick this when the doctor decides. It turns the score into a fact and opens a bed request.")
-    d = st.columns(3)
-    d[0].checkbox("Doctor has decided to admit", key="f_admit")
-    d[1].selectbox("Level of care needed", list(C.LEVEL_OF_CARE_SHARE), key="f_level", disabled=not st.session_state["f_admit"])
-    d[2].checkbox("Isolation required", key="f_iso", disabled=not st.session_state["f_admit"])
-    case, assumed = E.complete_case(current_case())
-    if case["admit_decided"]:
-        show_request(case)
-    else:
-        st.info("Not decided yet. Until then the system only forecasts.")
 
-    # ---- step 5
-    step_title(5, "Bed matching")
-    pending = int(sc["features"]["pending_results_so_far"])
-    matching_step(case, sc["p"], pending, W["beds"], E.NOW, record_key="sim", case_id="CASE-" + pd.Timestamp.now().strftime("%H%M%S"))
+# ------------------------------------------------------------------ simulation state shared by the two Simulate tabs
+def _sim_init():
+    s = st.session_state
+    s.setdefault("queue", [])
+    s.setdefault("assignments", {})
+    s.setdefault("frozen", False)
+    s.setdefault("score_hist", [])
+    s.setdefault("submitted_n", 0)
+    s.setdefault("f_approve", False)
+    s.setdefault("f_arrive", "09:00")
+
+
+SIM_TRIAGE_MIN, SIM_ORDERS_MIN, SIM_RESULTS_MIN, SIM_DECISION_MIN = 10, 30, 75, 120    # typical minutes from arrival [ASSUMPTION], same lead as the model's median
+
+
+def sim_timeline(case, arrival):
+    """Score steps for a patient the user adds. The model rescores at triage, when orders go in (results pending) and when results return,
+    using the case the user typed. The doctor decides SIM_DECISION_MIN after arrival."""
+    orders = list(case.get("orders", []))
+    variants = [(SIM_TRIAGE_MIN, {**case, "orders": [], "minutes_since_arrival": float(SIM_TRIAGE_MIN), "minutes_since_last_reassessment": 2.0}),
+                (SIM_ORDERS_MIN, {**case, "orders": [{**o, "resulted": False, "abnormal": False} for o in orders],
+                                  "minutes_since_arrival": float(SIM_ORDERS_MIN), "minutes_since_last_reassessment": 8.0}),
+                (SIM_RESULTS_MIN, {**case, "minutes_since_arrival": float(SIM_RESULTS_MIN), "minutes_since_last_reassessment": 20.0})]
+    steps = []
+    for mins, c in variants:
+        sc_ = E.score_case(c, W)
+        steps.append({"time": arrival + pd.Timedelta(minutes=mins), "p": sc_["p"], "pending": int(sc_["features"]["pending_results_so_far"])})
+    return steps, arrival + pd.Timedelta(minutes=SIM_DECISION_MIN)
+
+
+def sim_restart():
+    s = st.session_state
+    s["frozen"] = False
+    s["score_hist"] = []
+    s["f_approve"] = False
+    _apply_example(s["example_pick"])
+
+
+# ------------------------------------------------------------------ tab 1: Simulate Patient Scenario (doctor / ED side)
+def simulate_patient():
+    _sim_init()
+    s = st.session_state
+    frozen = s["frozen"]
+    pid = f"SIM-{s['submitted_n']:03d}" if frozen else f"SIM-{s['submitted_n'] + 1:03d}"
+    st.markdown(LIVE_CSS, unsafe_allow_html=True)
+    left, right = st.columns([3, 1.25], gap="large")
+    live = right.container(key="live_sim_frozen" if frozen else "live_sim")
+    with left:
+        st.markdown(f"### Doctor / ED side · patient {pid}")
+        st.caption("You are the ED doctor with a new patient. Write your note, record each result as it comes back, then decide whether to admit and submit the bed request. "
+                   "The bed manager picks it up under Simulate Bed Assignments.")
+        st.select_slider("Patient arrives at", options=ARRIVE_OPTIONS, key="f_arrive", disabled=frozen)
+        st.caption("The day starts at 8:00 AM with the demo patients already in the ED. Your patient joins at this time: triage about 10 minutes after arrival, orders at 30, results at 75, "
+                   "and the doctor decides at 120 minutes. The Bed Board shows the effect.")
+        # ---- step 1
+        step_title(1, "Type a patient ED case note", "Write a note in plain, natural language as a doctor would, and see how the AI translates the note into data.")
+        c1, c2 = st.columns([1, 1.1], gap="large")
+        with c1:
+            st.selectbox("Example cases (the demo patients are here too)", list(EXAMPLES), key="example_pick", on_change=load_example, disabled=frozen)
+            st.text_area("Case note (free text, include the last assessed vitals)", key="f_text", height=170, disabled=frozen)
+            with st.expander("How do I write this? Template with placeholders"):
+                st.code(TEMPLATE_TEXT, language=None)
+                st.caption("Everything in square brackets is a value to fill in. Assume the note contains everything the model needs; this tab is a baseline of the data model, not a test of the AI's reading.")
+            st.button("Read with AI", type="primary", on_click=do_parse, disabled=frozen)
+            info = s["parse_info"]
+            if info and "error" in info:
+                st.error(f"The AI reader is not available ({info['error']}). Fill in the form on the right by hand; every step after this still works.")
+            elif info:
+                st.caption(f"Read by {info['model']} ({info['source']}).")
+                for w_ in info["warnings"]:
+                    st.warning(w_)
+        with c2:
+            with st.container(border=True):
+                st.markdown("##### AI autofill (edit anything)")
+                a, b = st.columns(2)
+                a.selectbox("Age band", C.AGE_BANDS, key="f_age", disabled=frozen)
+                b.selectbox("ESI level", [1, 2, 3, 4, 5], key="f_esi", disabled=frozen)
+                st.selectbox("Chief complaint", I.COMPLAINTS, key="f_complaint", disabled=frozen)
+                v = st.columns(3)
+                v[0].number_input("Heart rate (worst)", 20.0, 250.0, key="f_hr", disabled=frozen)
+                v[1].number_input("SpO2 % (lowest)", 50.0, 100.0, key="f_spo2", disabled=frozen)
+                v[2].number_input("Systolic BP (lowest)", 40.0, 260.0, key="f_sbp", disabled=frozen)
+                v2 = st.columns(3)
+                v2[0].number_input("Resp. rate (worst)", 4.0, 60.0, key="f_rr", disabled=frozen)
+                v2[1].number_input("Temp °C (highest)", 30.0, 43.0, key="f_temp", disabled=frozen)
+                m = st.columns(2)
+                m[0].number_input("Minutes since arrival", 0.0, 4320.0, key="f_arr", disabled=frozen)
+                m[1].number_input("Minutes since last vitals check", 0.0, 4320.0, key="f_last", disabled=frozen)
+                if info and "evidence" in info and info["evidence"]:
+                    st.caption("Where the AI found each value: " + "; ".join(f"{k}: “{p}”" for k, p in info["evidence"].items()))
+
+        # ---- step 2
+        step_title(2, "Fill in order results", "Add each order for a test and its result, and see how each new piece of information changes the admit score on the right.")
+        edited = st.data_editor(s["f_orders"], key=f"orders_editor_{s['orders_ver']}", num_rows="dynamic", hide_index=True, width="stretch", disabled=frozen,
+                                column_config={"name": st.column_config.SelectboxColumn("Order", options=I.ORDERS, required=True),
+                                               "result": st.column_config.SelectboxColumn("Result received", options=RESULT_STATES, required=True, default="pending"),
+                                               "notes": st.column_config.TextColumn("Notes")})
+        s["orders_table"] = edited
+        case, assumed = E.complete_case(current_case())
+        sc = E.score_case(case, W)
+        if not frozen and (not s["score_hist"] or abs(s["score_hist"][-1] - sc["p"]) > 0.0005):
+            s["score_hist"].append(sc["p"])
+        if assumed:
+            st.caption("Not stated, so typical values were used for the score: " + ", ".join(assumed))
+
+        # ---- step 3
+        step_title(3, "Admit decision", "Decide whether the patient should be admitted, with the bed type and isolation request.")
+        with st.container(border=True):
+            st.markdown("##### Confirm patient admission")
+            d1, d2 = st.columns(2)
+            d1.selectbox("Level of care", list(C.LEVEL_OF_CARE_SHARE), key="f_level", format_func=lambda x: x.replace("_", "-"), disabled=frozen)
+            d2.radio("Isolation?", ["No", "Yes"], key="f_iso_choice", horizontal=True, disabled=frozen)
+            st.checkbox("Yes. I approve this patient's admit.", key="f_approve", disabled=frozen)
+            go = st.button("Submit Bed Request", type="primary", disabled=frozen or not s["f_approve"], key="sim_submit")
+        if go:
+            c_ = {**case, "admit_decided": True, "requested_level_of_care": s["f_level"], "isolation_required": s["f_iso_choice"] == "Yes"}
+            arr = pd.Timestamp(f"{C.DEMO_DATE} {s['f_arrive']}")
+            steps, dec_t = sim_timeline(case, arr)
+            sim = {"patient_id": pid, "arrival": arr, "steps": steps, "decision_time": dec_t, "level": s["f_level"], "isolation": s["f_iso_choice"] == "Yes",
+                   "complaint": case["complaint_category"], "esi": int(case["esi"])}
+            s["queue"].append({"patient_id": pid, "time": pd.Timestamp.now().strftime("%H:%M:%S"), "case": c_, "orders": current_case()["orders"],
+                               "p": sc["p"], "band": sc["band"], "top3": sc["top3"], "pending": int(sc["features"]["pending_results_so_far"]),
+                               "status": "queued", "bed": None, "sim": sim})
+            s["submitted_n"] += 1
+            s["frozen"] = True
+            st.rerun()
+        if frozen:
+            st.success(f"{pid} arrives at {s['f_arrive']} and is in the bed queue. The bed manager can match it under Simulate Bed Assignments, and the Bed Board shows it from {s['f_arrive']}. The score on the right is frozen until you press Restart.")
+        st.button("Restart", on_click=sim_restart, key="sim_restart")
+
+    with live:
+        st.markdown("#### Admit score so far")
+        st.markdown(f"<div style='font-size:2.8em;font-weight:700;line-height:1.1;color:{BAND_COLOR[sc['band']]}'>{sc['p']:.0%}</div>"
+                    + badge(f"{sc['band']} admit", BAND_COLOR[sc["band"]]), unsafe_allow_html=True)
+        for r in sc["top3"]:
+            st.caption(f"{'▲' if r['push'] >= 0 else '▼'} {r['feature']} ({r['push']:+.2f})")
+        h = s["score_hist"]
+        if len(h) > 1:
+            st.line_chart(pd.DataFrame({"Admit score": h}, index=range(1, len(h) + 1)), height=160)
+            st.caption("Each point is a change you made to the case.")
+        with st.expander("How the score is calculated"):
+            show_score(sc)
+        if frozen:
+            st.caption("Frozen at submission.")
+
+
+# ------------------------------------------------------------------ tab 2: Simulate Bed Assignments (nurse / bed management side)
+def simulate_beds():
+    _sim_init()
+    s = st.session_state
+    st.markdown("### Nurse / bed management side")
+    st.caption("You are the bed manager. Patients the doctor has submitted wait in the queue. Pick one, review the best-matching beds, and confirm. "
+               "The assignment then shows on the Bed Board.")
+    q = s["queue"]
+    if not q:
+        st.info("The queue is empty. Submit a patient under Simulate Patient Scenario (or pick one of the demo patients there) and they will appear here.")
+        return
+    step_title(1, "Beds in queue")
+    st.dataframe(pd.DataFrame([{"Patient": x["patient_id"], "Submitted": x["time"], "Admit score": f"{x['p']:.0%}", "Complaint": x["case"]["complaint_category"].replace("_", " "),
+                                "Bed type": x["case"]["requested_level_of_care"].replace("_", "-"), "Isolation": "yes" if x["case"]["isolation_required"] else "no",
+                                "Arrives": f"{pd.Timestamp(x['sim']['arrival']):%H:%M}", "Doctor decides": f"{pd.Timestamp(x['sim']['decision_time']):%H:%M}",
+                                "Status": "queued" if x["status"] == "queued" else f"assigned to {x['bed']}"} for x in q]), hide_index=True, width="stretch")
+    waiting = [x for x in q if x["status"] == "queued"]
+    if not waiting:
+        st.success("Every queued patient has a bed. See the Bed Board for the assignments.")
+        return
+    pick = st.selectbox("Patient to match", [x["patient_id"] for x in waiting], key="bq_pick",
+                        format_func=lambda i: next(f"{i}: {x['case']['complaint_category'].replace('_', ' ')}, ESI {int(x['case']['esi'])}, {x['p']:.0%} admit score" for x in waiting if x["patient_id"] == i))
+    item = next(x for x in waiting if x["patient_id"] == pick)
+    tdec = pd.Timestamp(item["sim"]["decision_time"])
+    board, mine, n_other = free_board(tdec, item["patient_id"])
+    st.caption(f"Bed board as of {tdec:%H:%M}, when the doctor decides. {n_other} beds are held for other patients at that time and are left out. "
+               + (f"Early prep has already held {mine['bed_id']} for this patient since {pd.Timestamp(mine['created_time']):%H:%M}." if mine else "Early prep had not held a bed for this patient."))
+    mt = E.match_beds(item["case"], board, now=tdec)
+    pat = mt["patient"]
+    st.write(f"Needs **{pat['requested_level_of_care'].replace('_', '-')}**" + (" with **isolation**" if pat["isolation_required"] else "")
+             + (f", preferred unit **{pat['preferred_unit']}**" if pat["preferred_unit"] else "")
+             + f". {mt['n_feasible']} of {mt['n_beds']} beds can take this patient now or soon (beds already assigned in this simulation are excluded).")
+    if not mt["ranked"]:
+        st.error("No bed fits. Escalate to the bed manager.")
+        return
+    bed_cards(mt, {})
+    ids = [r["bed_id"] for r in mt["ranked"]]
+    step_title(2, "Next steps for the selected bed")
+    chosen = st.radio("Selected bed", ids, horizontal=True, key=f"bq_bed_{pick}", format_func=lambda b: f"#{ids.index(b) + 1} {b}")
+    r = next(x for x in mt["ranked"] if x["bed_id"] == chosen)
+    blockers = E.annotate_blockers([r], board, W["notes"], use_llm=USE_LLM)
+    with st.container(border=True):
+        st.markdown(f"##### #{ids.index(chosen) + 1} {chosen}")
+        bl = blockers.get(chosen)
+        if bl and bl["findings"]:
+            st.write("Discharge blockers to clear before this bed is ready:")
+            for f in bl["findings"]:
+                st.write(f"• **{f['blocker_type'].replace('_', ' ')}** → {f['owner_role'].replace('_', ' ')} ({f['confidence']:.0%})")
+            with st.expander("Note and evidence"):
+                st.markdown(highlight(bl["note_text"], [f["evidence_phrase"] for f in bl["findings"]]), unsafe_allow_html=True)
+        elif bl:
+            st.write("No blockers in the latest note. The patient in this bed is waiting on a discharge with nothing flagged.")
+        else:
+            st.write("No discharge blockers: the bed is " + ("ready now." if r["status"] == "ready" else f"being cleaned, ready in about {r['minutes_until_ready']} minutes."))
+    who = st.radio("Decided by", list(ROLES), format_func=ROLES.get, horizontal=True, key="bq_who")
+    override = chosen != ids[0]
+    reason = st.text_input("Reason (required when you do not take the AI's top pick)", key=f"bq_reason_{pick}") if override else ""
+    if st.button("Confirm Bed Match", type="primary", disabled=override and not reason.strip(), key="bq_confirm"):
+        res = E.record_decision(item["patient_id"], mt["ranked"], chosen, who, reason, blockers)
+        s["assignments"][chosen] = {"patient_id": item["patient_id"], "role": ROLES[who], "time": f"{tdec + pd.Timedelta(minutes=5):%H:%M}", "level": pat["requested_level_of_care"],
+                                    "overridden": res["overridden"], "assign_time": tdec + pd.Timedelta(minutes=5)}
+        item["status"], item["bed"] = "assigned", chosen
+        st.rerun()
 
 
 # ------------------------------------------------------------------ tab 2: Demo Scenarios
@@ -439,14 +616,13 @@ def _orders_until(JD, vid, t):
         name = e["order_name"]
         res = ev[(ev["event_type"] == "result") & (ev["order_name"] == name)]
         no_res = name in C.ORDERS_WITHOUT_RESULT
-        rows.append({"Order": str(name).replace("_", " "), "Ordered at": f"{e['event_time']:%H:%M}",
-                     "Result back": "n/a" if no_res else ("yes" if len(res) else "pending"),
-                     "Abnormal": "" if (no_res or not len(res)) else ("yes" if str(res.iloc[0]["result_abnormal"]) == "True" else "no")})
+        state = "n/a" if no_res else ("pending" if not len(res) else ("concerning" if str(res.iloc[0]["result_abnormal"]) == "True" else "reassuring"))
+        rows.append({"Order": str(name).replace("_", " "), "Ordered at": f"{e['event_time']:%H:%M}", "Result": state})
     return rows
 
 
 def demo():
-    st.caption("Our seeded patients, replayed one event at a time. At each time the same five steps as Simulate Scenario are shown, using only what was known at that moment.")
+    st.caption("Our seeded patients, replayed one event at a time. At each time you see what the doctor sees (left) and what the bed manager sees (right), using only what was known at that moment.")
     JD = journey_data()
     ids = [v for v in JR.patients(JD) if v in TITLES]
     ids = sorted(ids, key=lambda v: TITLES[v])
@@ -467,57 +643,69 @@ def demo():
     row, idx = cur["snap"], cur["snap_idx"]
     prev_row = S_[i - 1]["snap"] if i > 0 else None
     visit = JD["visits"].loc[pick]
-    st.markdown(f"### Time {i + 1} · {t:%H:%M}   {cur['text']}")
+    st.markdown(f"## Time {i + 1} · {t:%H:%M}")
+    st.caption(cur["text"])
+    left, right = st.columns(2, gap="large")
+    with right:
+        st.markdown("### Nurse / bed management side")
+    with left:
+        st.markdown("### Doctor / ED side")
+        step_title(1, "The case so far")
+        if row is None:
+            st.info("The patient has arrived but nothing the model uses is charted yet. The first score comes at triage.")
+            with right:
+                st.info("Nothing for the bed manager yet.")
+            return
+        st.write(_case_text(row))
+        show_vitals({"hr": row["max_hr_so_far"], "spo2": row["min_spo2_so_far"], "sbp": row["min_sbp_so_far"], "rr": row["max_rr_so_far"], "temp_c": row["max_temp_so_far"]})
 
-    step_title(1, "The case so far")
-    if row is None:
-        st.info("The patient has arrived but nothing the model uses is charted yet. The first score comes at triage.")
-        return
-    st.write(_case_text(row))
-    show_vitals({"hr": row["max_hr_so_far"], "spo2": row["min_spo2_so_far"], "sbp": row["min_sbp_so_far"], "rr": row["max_rr_so_far"], "temp_c": row["max_temp_so_far"]})
+        step_title(2, "Orders so far and their results")
+        od = _orders_until(JD, pick, t)
+        if od:
+            st.dataframe(pd.DataFrame(od), hide_index=True, width="stretch")
+        else:
+            st.caption("No orders yet.")
 
-    step_title(2, "Orders so far and their results")
-    od = _orders_until(JD, pick, t)
-    if od:
-        st.dataframe(pd.DataFrame(od), hide_index=True, width="stretch")
-    else:
-        st.caption("No orders yet.")
+        step_title(3, "Admit score and how it was calculated")
+        sc = sc_from_snapshot(JD, row, idx)
+        show_score(sc, prev_p=None if prev_row is None else float(prev_row["p"]))
+        if not cur["new_score"]:
+            st.caption("No new score at this time: the model rescores at triage, each order and each result.")
+        hist = [(s["event"]["event_time"], float(s["snap"]["p"])) for s in S_[: i + 1] if s["snap"] is not None]
+        if len(hist) > 1:
+            st.line_chart(pd.DataFrame(hist, columns=["time", "Admit score"]).set_index("time"), height=160)
+        with st.expander("Effect on the ED as a whole"):
+            tot, npat = JR.ed_total(JD, t)
+            prev_tot = JR.ed_total(JD, S_[i - 1]["event"]["event_time"])[0] if i > 0 else None
+            m1, m2 = st.columns(2)
+            m1.metric("Expected admits among patients in the ED now", f"{tot:.1f}", None if prev_tot is None else f"{tot - prev_tot:+.1f} since last time", delta_color="off")
+            m2.metric("Patients still awaiting a decision", f"{npat}")
+            sp = JR.split(tot)
+            st.write("Beds those expected admits would need: " + ", ".join(f"{k.replace('_', '-')} {v:.1f}" for k, v in sp.items()))
+            st.caption("This total also moves when other patients arrive or are decided, so not every change comes from this patient.")
 
-    step_title(3, "Admit score and how it was calculated")
-    sc = sc_from_snapshot(JD, row, idx)
-    show_score(sc, prev_p=None if prev_row is None else float(prev_row["p"]))
-    if not cur["new_score"]:
-        st.caption("No new score at this time: the model rescores at triage, each order and each result.")
-    hist = [(s["event"]["event_time"], float(s["snap"]["p"])) for s in S_[: i + 1] if s["snap"] is not None]
-    if len(hist) > 1:
-        st.line_chart(pd.DataFrame(hist, columns=["time", "Admit score"]).set_index("time"), height=160)
-    with st.expander("Effect on the ED as a whole"):
-        tot, npat = JR.ed_total(JD, t)
-        prev_tot = JR.ed_total(JD, S_[i - 1]["event"]["event_time"])[0] if i > 0 else None
-        m1, m2 = st.columns(2)
-        m1.metric("Expected admits among patients in the ED now", f"{tot:.1f}", None if prev_tot is None else f"{tot - prev_tot:+.1f} since last time", delta_color="off")
-        m2.metric("Patients still awaiting a decision", f"{npat}")
-        sp = JR.split(tot)
-        st.write("Beds those expected admits would need: " + ", ".join(f"{k.replace('_', '-')} {v:.1f}" for k, v in sp.items()))
-        st.caption("This total also moves when other patients arrive or are decided, so not every change comes from this patient.")
+        step_title(4, "The doctor's admit decision")
+        decided = cur["event"]["event_type"] == "admit_decision" or (pd.notna(visit["disposition_time"]) and visit["disposition_time"] <= t and bool(visit["admitted"]))
+        case = {"complaint_category": row["complaint_category"], "esi": int(row["esi"]), "admit_decided": bool(decided),
+                "requested_level_of_care": visit["requested_level_of_care"] if decided else None, "isolation_required": bool(visit["isolation_required"]) if decided else False}
+        if decided:
+            st.success(f"Doctor decided to admit at {visit['disposition_time']:%H:%M}.")
+            show_request(case)
+        else:
+            st.info("Not decided yet. Until then the system only forecasts.")
 
-    step_title(4, "The doctor's admit decision")
-    decided = cur["event"]["event_type"] == "admit_decision" or (pd.notna(visit["disposition_time"]) and visit["disposition_time"] <= t and bool(visit["admitted"]))
-    case = {"complaint_category": row["complaint_category"], "esi": int(row["esi"]), "admit_decided": bool(decided),
-            "requested_level_of_care": visit["requested_level_of_care"] if decided else None, "isolation_required": bool(visit["isolation_required"]) if decided else False}
-    if decided:
-        st.success(f"Doctor decided to admit at {visit['disposition_time']:%H:%M}.")
-        show_request(case)
-    else:
-        st.info("Not decided yet. Until then the system only forecasts.")
-
-    step_title(5, "Bed matching")
-    tb = max(t, E.NOW)
-    st.caption(f"Bed board as of {tb:%H:%M}: beds that finish cleaning by then count as ready; other changes after the demo's {C.DEMO_NOW_TIME} are not simulated.")
-    matching_step(case, float(row["p"]), int(row["pending_results_so_far"]), EP.board_at(W["beds"], tb), tb)
+    with right:
+        step_title(5, "Bed matching")
+        fb, fh, n_oth = free_board(t, pick)
+        st.caption(f"Bed board as of {t:%H:%M} (the same board as the Bed Board tab). {n_oth} beds are held for other patients and are left out.")
+        matching_step(case, float(row["p"]), int(row["pending_results_so_far"]), fb, t, hold=fh)
 
 
 # ------------------------------------------------------------------ tab 3: Bed Board (with prepare-ahead merged in)
+DAY_TIMES = [pd.Timestamp(C.DEMO_DATE) + pd.Timedelta(hours=8) + pd.Timedelta(minutes=15 * i) for i in range(33)]      # 08:00 to 16:00
+ARRIVE_OPTIONS = [f"{t:%H:%M}" for t in DAY_TIMES if t <= pd.Timestamp(C.DEMO_DATE) + pd.Timedelta(hours=14)]
+
+
 @st.cache_resource(show_spinner="Reading the discharge notes for every bed that is waiting on a discharge...")
 def prep_world():
     pri = priors()
@@ -526,15 +714,45 @@ def prep_world():
         blk = E.prep_blockers(W["beds"], W["notes"], use_llm=True)
     except Exception:
         blk = E.prep_blockers(W["beds"], W["notes"], use_llm=False)
-    times = ["10:30", "10:46", "11:30", "12:05", "12:28"]
-    stamps = [pd.Timestamp(f"{C.DEMO_DATE} {t}") for t in times]
-    states = EP.replay(stamps, journey_data(), W["beds"], blk, pri, man.get("forecast_at_now"), now=E.NOW)
-    return {"pri": pri, "man": man, "blk": blk, "times": times, "stamps": stamps, "states": states}
+    return {"pri": pri, "man": man, "blk": blk}
+
+
+@st.cache_resource(show_spinner="Replaying the day...")
+def _day_states(sims_json, assigns_json):
+    PW = prep_world()
+    sims = _json.loads(sims_json)
+    assigns = _json.loads(assigns_json)
+    return EP.replay_day(DAY_TIMES, journey_data(), W["beds"], PW["blk"], PW["pri"], PW["man"].get("forecast_at_now"), now=E.NOW, sims=sims, assigns=assigns)
+
+
+def sims_in_session():
+    return [x["sim"] for x in st.session_state.get("queue", []) if x.get("sim")]
+
+
+def day_states():
+    """Every 15 minutes from 08:00: the bed board and early-prep plan, including the patients the user added and the beds they assigned."""
+    return _day_states(_json.dumps(sims_in_session(), default=str, sort_keys=True),
+                       _json.dumps(st.session_state.get("assignments", {}), default=str, sort_keys=True))
+
+
+def state_at(t):
+    i = int(min(max((pd.Timestamp(t) - DAY_TIMES[0]) // pd.Timedelta(minutes=15), 0), len(DAY_TIMES) - 1))
+    return day_states()[i]
+
+
+def free_board(t, visit_id):
+    """The board at t for matching one patient: bed state at t, beds already assigned in the simulation taken, and beds early prep holds for OTHER patients left out.
+    Also returns the hold early prep placed for this patient, if any."""
+    res = state_at(t)
+    b, _ = EP.board_with_assigns(W["beds"], t, st.session_state.get("assignments", {}))
+    others = {h["bed_id"] for h in res["holds"] if h["visit_id"] != visit_id}
+    mine = next((h for h in res["holds"] if h["visit_id"] == visit_id), None)
+    return b[~b["bed_id"].isin(others)], mine, len(others)
 
 
 UNIT_ORDER = [("icu", "ICU"), ("cardiac", "Cardiac (telemetry)"), ("pulmonary", "Pulmonary"), ("neuro", "Neuro"), ("general", "General (med-surg)")]
-STATUS_RGB = {"ready": (34, 197, 94), "cleaning": (14, 165, 233), "discharge": (245, 158, 11), "occupied": (156, 163, 175), "blocked": (100, 116, 139)}
-HOLD_STYLE = {"soft": ("#7C3AED", "dashed"), "hard": ("#7C3AED", "solid"), "decided": ("#1D4ED8", "solid"), "pooled": ("#0F766E", "dotted")}
+STATUS_RGB = {"ready": (134, 205, 160), "cleaning": (147, 197, 232), "discharge": (246, 205, 130), "occupied": (226, 229, 235), "blocked": (176, 184, 198), "assigned": (190, 178, 245)}
+HOLD_STYLE = {"soft": ("#8B5CF6", "dashed"), "hard": ("#7C3AED", "solid"), "decided": ("#3B82F6", "solid"), "pooled": ("#0D9488", "dotted")}
 HOLD_NAME = {"soft": "Soft hold (40-60%)", "hard": "Expedited hold (60%+)", "decided": "Held for a decided patient", "pooled": "Pooled hold (no patient yet)"}
 
 
@@ -544,65 +762,156 @@ def _bed_state(b):
     return b["status"]
 
 
-def _bed_box(b, tnow, hold, blk, tasks):
-    key = _bed_state(b)
+BED_CSS = """<style>
+[class*="st-key-unit_"]{flex-direction:row !important;flex-wrap:wrap !important;gap:8px !important;margin-bottom:10px}
+[data-testid="stLayoutWrapper"]:has(> [class*="st-key-bed_"]){width:92px !important;flex:0 0 92px !important}
+[class*="st-key-bed_"]{position:relative;width:92px !important;flex:0 0 92px !important;gap:0 !important}
+[class*="st-key-bed_"] [data-testid="stElementContainer"]{width:92px !important}
+[class*="st-key-bed_"] button{width:92px;height:62px;min-height:62px;padding:5px 7px;border-radius:10px;color:#1F2937;box-shadow:0 1px 2px rgba(0,0,0,.06);
+ justify-content:flex-start;align-items:flex-start;text-align:left;overflow:hidden}
+[class*="st-key-bed_"] button > div, [class*="st-key-bed_"] button [data-testid="stMarkdownContainer"]{width:100%;justify-content:flex-start;text-align:left}
+[class*="st-key-bed_"]{height:62px}
+[class*="st-key-bed_"] button p{font-size:12px;line-height:1.3;text-align:left;margin:0}
+[class*="st-key-bed_"] button:hover{filter:brightness(.97);color:#1F2937}
+[class*="st-key-bed_"] [data-testid="stMarkdown"]{height:0;overflow:visible}
+.bc{display:none;position:absolute;top:68px;left:0;z-index:9999;width:290px;background:#fff;color:#1F2937;border:1px solid rgba(0,0,0,.14);
+ border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:10px 12px;font-size:12.5px;line-height:1.45;text-align:left}
+.bc.rt{left:auto;right:0}
+.bc.mid{left:50%;transform:translateX(-50%)}
+[class*="st-key-bed_"]:hover .bc{display:block}
+.bc .h{font-weight:700;font-size:13.5px;margin-bottom:1px}
+.bc .sub{color:#6B7280;font-size:11.5px;margin-bottom:6px}
+.bc .row{margin-top:5px;padding-top:5px;border-top:1px solid rgba(0,0,0,.07)}
+.bc .k{display:block;color:#6B7280;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
+.bc ul{margin:2px 0 0 16px;padding:0}
+</style>"""
+
+
+def _bed_box(b, tnow, hold, blk, tasks, assign=None, col=0):
+    esc = html.escape
+    key = "assigned" if assign else _bed_state(b)
     mins = None
     if key in ("cleaning", "discharge") and pd.notna(b["expected_ready_time"]):
         mins = max(0, round((b["expected_ready_time"] - tnow).total_seconds() / 60))
-    alpha = 1.0 if key in ("ready", "occupied", "blocked") else max(0.4, 1.0 - min(mins or 240, 240) / 240 * 0.6)
+    if assign:
+        hold = None
+    alpha = 1.0 if key in ("ready", "occupied", "blocked", "assigned") else max(0.5, 1.0 - min(mins or 240, 240) / 240 * 0.5)
     r, g, bl = STATUS_RGB[key]
-    border = "1px solid rgba(0,0,0,.25)"
+    border = "1px solid rgba(0,0,0,.10)"
     tag = ""
+    if assign:
+        border = "2px solid #6D5BD0"
+        tag = f"<div style='font-size:10px;color:#4C3FA8;font-weight:600'>{esc(assign['patient_id'])}</div>"
     if hold:
-        col, sty = HOLD_STYLE[hold["kind"]]
-        border = f"3px {sty} {col}"
-        tag = f"<div style='font-size:10px;color:{col};font-weight:700'>→ {html.escape(str(hold['visit_id'] or 'pooled'))[-5:] if hold['visit_id'] else 'pool'}</div>"
-    tip = [f"{b['bed_id']} · {b['unit']} · {b['bed_type']}" + (" · isolation-capable" if bool(b["isolation_capable"]) else ""),
-           {"ready": "Ready now", "cleaning": f"Being cleaned, ready in ~{mins} min", "discharge": f"Occupied, discharge pending, expected ready in ~{mins} min",
-            "occupied": "Occupied, no discharge planned", "blocked": "Blocked (out of service)"}[key]]
-    if isinstance(b["current_visit_id"], str) and key in ("occupied", "discharge"):
-        tip.append(f"Patient {b['current_visit_id']}")
-    if blk and blk.get("findings"):
-        tip.append("Open blockers: " + ", ".join(f"{f['blocker_type'].replace('_', ' ')} ({f['owner_role'].replace('_', ' ')})" for f in blk["findings"]))
-    if hold:
-        tip.append(f"{HOLD_NAME[hold['kind']]}: {who_label(hold['visit_id'])}"
-                   + ("" if hold["p_latest"] is None else f", admit score {hold['p_latest']:.0%}")
-                   + f", assumed {hold['level_assumed'].replace('_', '-')} ({hold['level_confidence']:.0%})")
+        c_, sty = HOLD_STYLE[hold["kind"]]
+        border = f"2px {sty} {c_}"
+
+    ready_t = f"{b['expected_ready_time']:%H:%M}" if pd.notna(b["expected_ready_time"]) else "unknown"
+    sub = dict(UNIT_ORDER).get(b["unit"], b["unit"]) + (f" · {b['bed_type'].replace('_', ' ')}" if b["bed_type"].replace("_", " ") not in dict(UNIT_ORDER).get(b["unit"], "").lower() and b["bed_type"] not in (b["unit"], "med_surg") else "") + (" · isolation-capable" if bool(b["isolation_capable"]) else "")
+    rows = []   # (label, html)
+    vid = b["current_visit_id"] if isinstance(b["current_visit_id"], str) else None
+    # 1) what the bed is doing now
+    if key == "occupied":
+        rows.append(("Right now", f"Occupied by patient <b>{esc(vid or 'unknown')}</b>. No discharge planned."))
+    elif key == "discharge":
+        rows.append(("Right now", f"Occupied by patient <b>{esc(vid or 'unknown')}</b>, <b>pending discharge</b>. Expected free around <b>{ready_t}</b> (~{mins} min)."))
+        fnd = (blk or {}).get("findings") or []
+        if fnd:
+            li = "".join(f"<li>{esc(f['blocker_type'].replace('_', ' '))} <span style='color:#6B7280'>(owner: {esc(f['owner_role'].replace('_', ' '))})</span></li>" for f in fnd)
+            rows.append(("Discharge held up by", f"<ul>{li}</ul>"))
+        else:
+            rows.append(("Discharge held up by", "Nothing flagged in the latest notes."))
+    elif key == "cleaning":
+        steps = [k["task_type"].replace("_", " ") for k in (tasks or []) if k["task_type"] not in ("none",)]
+        rows.append(("Right now", f"Being cleaned. Expected ready around <b>{ready_t}</b> (~{mins} min)."))
+        rows.append(("Waiting on", esc(" → ".join(steps)) if steps else "Housekeeping turnover (no other steps tracked)."))
+    elif key == "ready":
+        rows.append(("Right now", "Clean and <b>ready now</b>. Nobody is in it."))
+    elif key == "blocked":
+        rows.append(("Right now", "Out of service (blocked). Not available for matching."))
+    elif key == "assigned":
+        rows.append(("Right now", f"Free in the data, but <b>assigned in the simulation</b>."))
+    # 2) who is coming next
+    if assign:
+        rows.append(("Next", f"Assigned to incoming patient <b>{esc(assign['patient_id'])}</b> ({esc(assign['level'].replace('_', '-'))}) by {esc(assign['role'])} at {esc(assign['time'])}" + (" (override)" if assign.get("overridden") else "") + "."))
+    elif hold:
+        who = hold["visit_id"]
+        if hold["kind"] == "pooled":
+            nxt = "Held in the <b>pool</b> for the next likely admit. No patient named yet."
+        elif hold["kind"] == "decided":
+            nxt = f"Held for incoming patient <b>{esc(str(who))}</b> (admit decided, score {hold['p_latest']:.0%})." if hold["p_latest"] is not None else f"Held for incoming patient <b>{esc(str(who))}</b> (admit decided)."
+        else:
+            nxt = f"Prepared ahead for likely patient <b>{esc(str(who))}</b> (admit score {hold['p_latest']:.0%}, not decided yet)."
+        extra = f"<br>Assumed {esc(hold['level_assumed'].replace('_', '-'))} bed ({hold['level_confidence']:.0%} sure)."
         if hold["kind"] != "pooled":
-            tip.append(f"Needed by {hold['needed_by_time']:%H:%M}; realistic ready {hold['realistic_ready_time']:%H:%M}" + ("; misses earliest plan" if hold["critical"] else ""))
-        if tasks:
-            tip.append("Tasks: " + " → ".join(f"{k['task_type'].replace('_', ' ')} {k['start_by_time']:%H:%M}-{k['due_time']:%H:%M}" for k in tasks))
-    label = {"ready": "ready", "cleaning": f"clean {mins}m", "discharge": f"leaves ~{mins}m", "occupied": "occupied", "blocked": "blocked"}[key]
-    return (f"<div title=\"{html.escape(chr(10).join(tip), quote=True)}\" style='width:92px;height:62px;border-radius:8px;border:{border};"
-            f"background:rgba({r},{g},{bl},{alpha:.2f});padding:4px 6px;font-size:12px;line-height:1.25;color:#111;box-sizing:border-box;overflow:hidden'>"
-            f"<b>{html.escape(b['bed_id'])}</b><br>{label}{tag}</div>")
+            extra += f"<br>Needed by <b>{hold['needed_by_time']:%H:%M}</b>; realistic ready {hold['realistic_ready_time']:%H:%M}" + (" (<b>misses the earliest plan</b>)" if hold["critical"] else "") + "."
+        rows.append(("Next", nxt + extra))
+        if key in ("occupied", "discharge", "cleaning") and tasks:
+            rows.append(("Early-prep steps", esc(" → ".join(f"{k['task_type'].replace('_', ' ')} {k['start_by_time']:%H:%M}-{k['due_time']:%H:%M}" for k in tasks))))
+    else:
+        rows.append(("Next", "No incoming patient yet." if key != "blocked" else "None."))
+
+    status_txt = {"ready": "Ready", "cleaning": "Being cleaned", "discharge": "Discharge pending", "occupied": "Occupied", "blocked": "Blocked", "assigned": "Assigned"}[key]
+    card = (f"<div class='bc'><div class='h'>{esc(b['bed_id'])} · {status_txt}</div><div class='sub'>{esc(sub)}</div>"
+            + "".join(f"<div class='row'><span class='k'>{lab}</span>{body}</div>" for lab, body in rows) + "</div>")
+    label = {"ready": "ready", "cleaning": f"clean {mins}m", "discharge": f"leaves ~{mins}m", "occupied": "occupied", "blocked": "blocked", "assigned": "assigned"}[key]
+    pos = " rt" if col % 10 >= 7 else (" mid" if col % 10 >= 4 else "")
+    card = card.replace("<div class='bc'>", f"<div class='bc{pos}'>", 1)
+    bid = b["bed_id"]
+    label_md = f"**{bid}**  \n{label}" + (f"  \n{assign['patient_id']}" if assign else "")
+    css = (f".st-key-bed_{bid} button, .st-key-bed_{bid} button:hover, .st-key-bed_{bid} button:focus{{background:rgba({r},{g},{bl},{alpha:.2f}) !important;border:{border} !important}}")
+    return label_md, css, card
 
 
 def _legend():
     chips = []
-    for name, key in (("Ready now", "ready"), ("Being cleaned", "cleaning"), ("Occupied, discharge pending", "discharge"), ("Occupied", "occupied"), ("Blocked", "blocked")):
+    for name, key in (("Ready now", "ready"), ("Being cleaned", "cleaning"), ("Occupied, discharge pending", "discharge"), ("Occupied", "occupied"), ("Blocked", "blocked"), ("Assigned in simulation", "assigned")):
         r, g, b = STATUS_RGB[key]
         chips.append(f"<span style='display:inline-flex;align-items:center;margin-right:14px;font-size:13px'><span style='width:16px;height:16px;border-radius:4px;"
-                     f"background:rgba({r},{g},{b},1);border:1px solid rgba(0,0,0,.25);margin-right:5px'></span>{name}</span>")
+                     f"background:rgba({r},{g},{b},1);border:1px solid rgba(0,0,0,.10);margin-right:5px'></span>{name}</span>")
     chips.append("<span style='font-size:13px;margin-right:14px'>Lighter tint = longer until ready</span>")
     for k, (col, sty) in HOLD_STYLE.items():
         chips.append(f"<span style='display:inline-flex;align-items:center;margin-right:14px;font-size:13px'><span style='width:16px;height:16px;border-radius:4px;"
-                     f"border:3px {sty} {col};margin-right:5px;box-sizing:border-box'></span>{HOLD_NAME[k]}</span>")
+                     f"border:2px {sty} {col};margin-right:5px;box-sizing:border-box'></span>{HOLD_NAME[k]}</span>")
     st.markdown("<div style='line-height:2'>" + "".join(chips) + "</div>", unsafe_allow_html=True)
+
+
+def _pick_bed(bed_id):
+    st.session_state["board_inspect"] = bed_id
+    st.toast(f"Showing {bed_id} under Inspect a bed, below the board.")
 
 
 def board():
     PW = prep_world()
-    st.caption("Every inpatient bed at a glance. Hover a bed for details (or pick one below). Purple and teal outlines show beds the system would prepare ahead "
-               "for patients who are likely to be admitted but not yet decided.")
-    idx = st.select_slider("Moment in the demo day", options=list(range(len(PW["times"]))), value=0,
-                           format_func=lambda i: PW["times"][i] + ("  (demo 'now')" if i == 0 else ""), key="prep_t")
-    res, tnow = PW["states"][idx], PW["stamps"][idx]
-    beds = EP.board_at(W["beds"], tnow)
+    st.caption("Every inpatient bed at a glance, from 8:00 AM. Move the time to watch beds free up and early-prep holds appear. Hover a bed to see who is in it, what its discharge or cleaning is waiting on, and who is coming next. "
+               "Click a bed to open it under Inspect a bed, below the board. Purple and teal outlines are beds the system prepares ahead for patients who are likely to be admitted. "
+               "Patients you add under Simulate Patient Scenario join this day at the time you choose, and beds you assign show in indigo with the patient's code.")
+    states = day_states()
+    idx = st.select_slider("Time of day", options=list(range(len(DAY_TIMES))), value=0, format_func=lambda i: f"{DAY_TIMES[i]:%H:%M}", key="prep_t")
+    res, tnow = states[idx], DAY_TIMES[idx]
+    beds = res["board"]
     hold_by_bed = {h["bed_id"]: h for h in res["holds"]}
     tasks_by_hold = {}
     for k in res["tasks"]:
         tasks_by_hold.setdefault(k["hold_id"], []).append(k)
+    assigned = {bed: a for bed, a in st.session_state.get("assignments", {}).items() if pd.Timestamp(a["assign_time"]) <= tnow}
+    for x in st.session_state.get("queue", []):
+        sm = x.get("sim")
+        if not sm:
+            continue
+        dec, arr = pd.Timestamp(sm["decision_time"]), pd.Timestamp(sm["arrival"])
+        line = f"**{x['patient_id']}** arrives {arr:%H:%M}, doctor decides {dec:%H:%M}"
+        asg = next((bd for bd, a in st.session_state.get("assignments", {}).items() if a["patient_id"] == x["patient_id"]), None)
+        hd = next((h for h in res["holds"] if h["visit_id"] == x["patient_id"]), None)
+        if tnow < arr:
+            line += ". Not in the ED yet."
+        elif asg and pd.Timestamp(st.session_state["assignments"][asg]["assign_time"]) <= tnow:
+            line += f". Assigned to {asg}."
+        elif hd:
+            line += f". Bed {hd['bed_id']} held since {pd.Timestamp(hd['created_time']):%H:%M} ({hd['kind']} hold)."
+        else:
+            line += ". No bed held yet."
+        st.caption(line)
     named = [h for h in res["holds"] if h["visit_id"] and h["kind"] in ("soft", "hard")]
     c = st.columns(5)
     c[0].metric("Ready beds", int((beds["status"] == "ready").sum()))
@@ -612,29 +921,45 @@ def board():
     c[4].metric("Tasks started early", len(res["tasks"]))
     bn = res["banner"]
     if bn.get("forecast_used"):
-        (st.warning if bn["shortfall_beds"] >= C.PREP_POOL_MIN_SHORTFALL else st.success)(
-            f"Next {bn['horizon_hours']} hours: about {bn['forecast_admits']:.1f} new admits expected. After beds already claimed, "
-            + ", ".join(f"{k.replace('_', '-')} short by {max(0, v['shortfall']):.1f}" for k, v in bn["levels"].items()) + ".")
+        msg = (f"Next {bn['horizon_hours']} hours: about {bn['forecast_admits']:.1f} new admits expected. After beds already claimed, "
+               + ", ".join(f"{k.replace('_', '-')} short by {max(0, v['shortfall']):.1f}" for k, v in bn["levels"].items()) + ".")
+        if bn["shortfall_beds"] >= C.PREP_POOL_MIN_SHORTFALL:
+            st.warning(msg)
+        else:
+            st.success(msg)
     _legend()
+    st.markdown(BED_CSS, unsafe_allow_html=True)
     for unit, title in UNIT_ORDER:
         ub = beds[beds["unit"] == unit]
         if ub.empty:
             continue
-        boxes = "".join(_bed_box(r, tnow, hold_by_bed.get(r["bed_id"]), PW["blk"].get(r["bed_id"]),
-                                 tasks_by_hold.get(hold_by_bed[r["bed_id"]]["hold_id"]) if r["bed_id"] in hold_by_bed else None) for _, r in ub.iterrows())
-        st.markdown(f"**{title}**")
-        st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px'>{boxes}</div>", unsafe_allow_html=True)
+        st.markdown(f"#### {title}")
+        parts = [_bed_box(r, tnow, hold_by_bed.get(r["bed_id"]), PW["blk"].get(r["bed_id"]),
+                          tasks_by_hold.get(hold_by_bed[r["bed_id"]]["hold_id"]) if r["bed_id"] in hold_by_bed else None,
+                          assigned.get(r["bed_id"]), col=i) for i, (_, r) in enumerate(ub.iterrows())]
+        sel_bed = st.session_state.get("board_inspect")
+        css = "".join(p[1] for p in parts) + (f".st-key-bed_{sel_bed} button{{box-shadow:0 0 0 3px #111827 !important}}" if sel_bed else "")
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+        with st.container(key=f"unit_{unit}"):
+            for (_, r), (lab, _c, card) in zip(ub.iterrows(), parts):
+                with st.container(key=f"bed_{r['bed_id']}"):
+                    st.button(lab, key=f"bedbtn_{r['bed_id']}", on_click=_pick_bed, args=(r["bed_id"],))
+                    st.markdown(card, unsafe_allow_html=True)
 
     # ---- inspect one bed (hover alternative, and where the task chain lives)
-    st.markdown("**Inspect a bed**")
+    st.markdown("### Inspect a bed")
     held = [h["bed_id"] for h in res["holds"]]
     pick = st.selectbox("Bed", held + [b for b in beds["bed_id"] if b not in held], key="board_inspect",
                         format_func=lambda x: x + ("  (held)" if x in held else ""))
     b = beds.set_index("bed_id").loc[pick]
     h = hold_by_bed.get(pick)
     key = _bed_state(b)
-    st.write(f"**{pick}** · {b['unit']} · {b['bed_type']}" + (" · isolation-capable" if bool(b["isolation_capable"]) else "") + f" · {STATUS_NAME.get(b['status'], b['status'])}"
-             + (" (discharge pending)" if key == "discharge" else ""))
+    st.markdown(f"##### {pick}")
+    st.caption(f"{dict(UNIT_ORDER).get(b['unit'], b['unit'])} · {b['bed_type'].replace('_', ' ')}" + (" · isolation-capable" if bool(b["isolation_capable"]) else "") + f" · {STATUS_NAME.get(b['status'], b['status'])}"
+               + (" (discharge pending)" if key == "discharge" else ""))
+    if pick in assigned:
+        a_ = assigned[pick]
+        st.write(f"Assigned in the simulation to **{a_['patient_id']}** ({a_['level'].replace('_', '-')}) by {a_['role']} at {a_['time']}" + (" (override)" if a_["overridden"] else "") + ".")
     occ = PW["blk"].get(pick)
     if occ:
         st.write("Open blockers: " + (", ".join(f"**{f['blocker_type'].replace('_', ' ')}** ({f['owner_role'].replace('_', ' ')})" for f in occ["findings"]) or "none in the latest note"))
@@ -669,7 +994,10 @@ def board():
                           "Bed assumed": f"{hh['level_assumed'].replace('_', '-')} ({hh['level_confidence']:.0%})", "Bed": hh["bed_id"],
                           "Supply": {1: "ready now", 2: "being cleaned", 3: "discharge-pending"}[hh["tier"]], "Realistic ready": f"{hh['realistic_ready_time']:%H:%M}",
                           "Needed by": "" if hh["kind"] == "pooled" else f"{hh['needed_by_time']:%H:%M}", "Margin (min)": margin})
-        st.dataframe(pd.DataFrame(ratio), hide_index=True, width="stretch") if ratio else st.caption("Nobody is flagged yet at this moment.")
+        if ratio:
+            st.dataframe(pd.DataFrame(ratio), hide_index=True, width="stretch")
+        else:
+            st.caption("Nobody is flagged yet at this moment.")
         if res["bed_requests"]:
             st.dataframe(pd.DataFrame([{"Patient": who_label(r["visit_id"]), "Bed type": r["level"].replace("_", "-"), "Isolation": "yes" if r["isolation"] else "no",
                                         "For bed": r["bed_id"], "Status": "send now (60%+)" if r["sent_early"] else "drafted only (40-60%)"} for r in res["bed_requests"]]),
@@ -741,7 +1069,7 @@ def page_audit():
     import os
     for name in ("audit_log", "bed_matches", "bed_holds", "tasks"):
         p = f"{C.DATA_DIR}/{name}.csv"
-        st.markdown(f"**{name}**")
+        st.markdown(f"### {name}")
         if os.path.exists(p):
             st.dataframe(pd.read_csv(p).tail(30), hide_index=True, width="stretch")
         else:
@@ -754,16 +1082,16 @@ def page_fairness():
                f"A gap is flagged when a group differs from overall by more than {C.FAIRNESS_TOLERANCE:.0%} "
                "(calibration gap: more than 2 points). FINDING = the 95% interval excludes zero and the group has 30+ cases.")
     df, overall = _fairness()
-    st.markdown("**Does the model score payer groups differently?**")
+    st.markdown("### Does the model score payer groups differently?")
     show = df.assign(metric=df["metric"].map(LABELS))
     for title, mets in (("Model behaviour", MODEL_METRICS), ("How the ED runs (observed data, not model output)",
                                                            ["median_boarding_hours", "lwbs_rate", "median_door_to_provider_min"])):
-        st.markdown(f"**{title}**")
+        st.markdown(f"#### {title}")
         t = show[df["metric"].isin(mets)][["metric", "group", "group_value", "overall_value", "difference", "ci_low", "ci_high", "n", "status"]]
         st.dataframe(t.rename(columns={"metric": "Metric", "group": "Payer group", "group_value": "Group", "overall_value": "Overall",
                                        "difference": "Difference", "ci_low": "95% low", "ci_high": "95% high", "n": "Cases", "status": "Status"}),
                      hide_index=True, width="stretch")
-    st.markdown("**Same patient, different payer**")
+    st.markdown("### Same patient, different payer")
     tw = FR.twin_check()
     if tw:
         st.write(f"Demo twins (identical clinically; {tw['commercial']} commercial vs {tw['uninsured']} uninsured) scored "
@@ -778,7 +1106,7 @@ PAGES = {"extractor": ("Extractor test", page_extractor), "audit": ("Audit trail
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
     st.header("Boarding Command Center")
-    st.caption(f"Demo board as of Wed Nov 4, {C.DEMO_NOW_TIME}. All data is synthetic. Do not type real patient information.")
+    st.caption("Demo day: Wed Nov 4, from 8:00 AM. All data is synthetic. Do not type real patient information.")
     if st_["key_present"]:
         st.success(f"AI reader: {st_['provider']} / {st_['model']}")
     elif st_["cache_only"]:
@@ -800,9 +1128,11 @@ if _page in PAGES:
     st.markdown("<a href='.' target='_self'>← Back to the main app</a>", unsafe_allow_html=True)
     PAGES[_page][1]()
 else:
-    tab_sim, tab_demo, tab_board = st.tabs(["Simulate Scenario", "Demo Scenarios", "Bed Board"])
+    tab_sim, tab_beds, tab_demo, tab_board = st.tabs(["Simulate Patient Scenario", "Simulate Bed Assignments", "Demo Scenarios", "Bed Board"])
     with tab_sim:
-        simulate()
+        simulate_patient()
+    with tab_beds:
+        simulate_beds()
     with tab_demo:
         demo()
     with tab_board:
